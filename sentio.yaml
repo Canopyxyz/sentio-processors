@@ -1,0 +1,8 @@
+# NOTE: the project name is configured when creating a project on the sentio dashboard
+# The format is as follows:
+# project: <sentio-account-username>/<sentio-project-name>
+project: canopy-sentio-indexer
+
+# project: solo-labs/canopy-aptos-mainnet
+# project: solo-labs/canopy-aptos-testnet
+# project: solo-labs/canopy-movement-porto-testnet

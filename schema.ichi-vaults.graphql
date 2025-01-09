@@ -1,0 +1,160 @@
+type LiquidSwapVaultModule @entity {
+  id: ID!
+  publisher_address: String!
+  vault_count: Int!
+  deposit_count: Int!
+  withdraw_count: Int!
+  rebalance_count: Int!
+  snapshot_count: Int!
+}
+
+type LiquidSwapVault @entity {
+  id: ID!
+  vault_address: String!
+  vault_module: LiquidSwapVaultModule!
+  token_id_name: String!
+  token_id_creator: String!
+  collection: String!
+  owner_address: String!
+  transaction_block_height: BigInt!
+  transaction_version: BigInt!
+  created_timestamp: BigInt!
+  bin_step: BigInt!
+  coin_x_address: String!
+  coin_y_address: String!
+  is_x_deposit: Boolean!
+  deposit_count: Int!
+  withdraw_count: Int!
+  rebalance_count: Int!
+  snapshot_count: Int!
+  holder_count: Int!
+  total_shares: BigInt!
+  fee_apr_1_day_u18: BigInt!
+  fee_apr_3_day_u18: BigInt!
+  fee_apr_7_day_u18: BigInt!
+  fee_apr_30_day_u18: BigInt!
+  lp_apr_1_day_u18: BigInt!
+  lp_apr_3_day_u18: BigInt!
+  lp_apr_7_day_u18: BigInt!
+  lp_apr_30_day_u18: BigInt!
+  total_fees: BigInt!
+  total_value_locked_x: BigInt!
+  total_value_locked_y: BigInt!
+  total_value_locked_in_y_u18: BigInt!
+  current_x_price_x64: BigInt!
+  current_share_price_u18: BigInt!
+}
+
+type LiquidSwapDepositEvent @entity {
+  id: ID!
+  vault: LiquidSwapVault!
+  transaction_block_height: BigInt!
+  transaction_version: BigInt!
+  user_address: String!
+  coin_x_value: BigInt!
+  coin_y_value: BigInt!
+  total_supply: BigInt!
+  active_bin_id: BigInt!
+  shares_minted: BigInt!
+  timestamp: BigInt!
+}
+
+type LiquidSwapWithdrawEvent @entity {
+  id: ID!
+  vault: LiquidSwapVault!
+  transaction_block_height: BigInt!
+  transaction_version: BigInt!
+  user_address: String!
+  coin_x_value: BigInt!
+  coin_y_value: BigInt!
+  total_supply: BigInt!
+  active_bin_id: BigInt!
+  shares_burned: BigInt!
+  timestamp: BigInt!
+}
+
+type LiquidSwapRebalanceEvent @entity {
+  id: ID!
+  vault_address: String!
+  transaction_block_height: BigInt!
+  transaction_version: BigInt!
+  timestamp: BigInt!
+  leftover_coin_x_value: BigInt!
+  leftover_coin_y_value: BigInt!
+  total_supply: BigInt!
+  base_fees_x: BigInt!
+  base_fees_y: BigInt!
+  total_fee: BigInt!
+  active_bin_id: BigInt!
+  base_lower_bin_id: BigInt!
+  base_upper_bin_id: BigInt!
+  limit_lower_bin_id: BigInt!
+  limit_upper_bin_id: BigInt!
+}
+
+type LiquidSwapSnapshotEvent @entity {
+  id: ID!
+  vault_address: String!
+  transaction_block_height: BigInt!
+  transaction_version: BigInt!
+  timestamp: BigInt!
+  total_fee: BigInt!
+  total_x: BigInt!
+  total_y: BigInt!
+}
+
+type LiquidSwapUser @entity {
+  id: ID!
+  user_address: String!
+  vault_count: Int!
+  transaction_count: Int!
+}
+
+type LiquidSwapUserVault @entity {
+  id: ID!
+  user_address: String!
+  vault_address: String!
+  transaction_count: Int!
+}
+
+type LiquidSwapVaultHourlyHistory @entity {
+  id: ID!
+  vault_address: String!
+  date: BigInt!
+  total_value_locked_x: BigInt!
+  total_value_locked_y: BigInt!
+  total_value_locked_in_y_u18: BigInt!
+  total_fees: BigInt!
+  total_shares: BigInt!
+  transaction_count: Int!
+  holder_count: Int!
+  open_x_price_x64: BigInt!
+  close_x_price_x64: BigInt!
+  low_x_price_x64: BigInt!
+  high_x_price_x64: BigInt!
+  open_dt_share_price_u18: BigInt!
+  close_dt_share_price_u18: BigInt!
+  low_dt_share_price_u18: BigInt!
+  high_dt_share_price_u18: BigInt!
+}
+
+type LiquidSwapVaultDailyHistory @entity {
+  id: ID!
+  vault_address: String!
+  date: BigInt!
+  total_value_locked_x: BigInt!
+  total_value_locked_y: BigInt!
+  total_value_locked_in_y_u18: BigInt!
+  total_fees: BigInt!
+  total_shares: BigInt!
+  transaction_count: Int!
+  holder_count: Int!
+  open_x_price_x64: BigInt!
+  close_x_price_x64: BigInt!
+  low_x_price_x64: BigInt!
+  high_x_price_x64: BigInt!
+  open_dt_share_price_u18: BigInt!
+  close_dt_share_price_u18: BigInt!
+  low_dt_share_price_u18: BigInt!
+  high_dt_share_price_u18: BigInt!
+}

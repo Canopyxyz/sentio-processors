@@ -1,0 +1,13 @@
+.husky
+
+node_modules
+
+dist/**
+abis/**
+
+# ignore the sentio generated types and schemas
+src/types
+src/schema
+
+src/abis/**
+src/pkgs/**

@@ -1,0 +1,307 @@
+# - - - Global Level Entities - - -
+
+"""
+Global module statistics and configuration
+"""
+type MRModule @entity {
+  # Chain identifier
+  id: ID!
+  # Total number of staking pools that have been created
+  pool_count: Int!
+  # Total number of add reward operations
+  reward_count: Int!
+  # Total number of notify_reward operations
+  notify_count: Int!
+  # Total number of set_rewards_duration operations
+  update_duration_count: Int!
+  # Total number of reward claim operations
+  claim_count: Int!
+  # Total number of subscribe operations
+  subscription_count: Int!
+  # Total number of unsubscribe operations
+  unsubscription_count: Int!
+  # Total number of stake events
+  stake_count: Int!
+  # Total number of withdrawal operations
+  withdrawal_count: Int!
+  # Total number of emergency withdrawal operations
+  emergency_withdraw_count: Int!
+  # Last update timestamp (unix seconds)
+  last_update_time: BigInt!
+  # Total number of unique users
+  user_count: Int!
+}
+
+"""
+Individual staking pool data and configuration
+"""
+type MRStakingPool @entity {
+  # Pool address (unique identifier)
+  id: ID!
+  # Reference to global module
+  module: MRModule!
+  # Transaction version when pool was created
+  creation_tx_version: BigInt!
+  # Creator's address
+  creator: String! @index
+  # Token that can be staked in this pool
+  staking_token: String! @index
+  # List of supported reward tokens
+  reward_tokens: [String!]!
+  # Detailed reward configuration and state
+  reward_datas: [MRPoolRewardData!]! @derivedFrom(field: "pool")
+  # Number of withdrawal operations
+  withdrawal_count: Int!
+  # Number of reward claim operations
+  claim_count: Int!
+  # Total number of unique subscribers
+  subscriber_count: Int!
+  # Total amount of staked tokens subscribed to the pool
+  total_subscribed: BigInt!
+  # Creation timestamp (unix seconds)
+  created_at: BigInt!
+}
+
+"""
+Reward token configuration and state for a pool
+"""
+type MRPoolRewardData @entity {
+  # pool_address-reward_token
+  id: ID!
+  # the staking pool address
+  pool_address: String!
+  # Reference to parent pool
+  pool: MRStakingPool!
+  # Reward token address
+  reward_token: String! @index
+  # Current reward store balance
+  reward_balance: BigInt!
+  # Address authorized to distribute rewards
+  distributor: String! @index
+  # Reward period duration
+  duration: BigInt!
+  # Current period end timestamp (unix seconds)
+  period_finish: BigInt!
+  # Last reward update timestamp (unix seconds)
+  last_update_time: BigInt!
+  # Current reward rate (12 decimal precision)
+  reward_rate_u12: BigInt!
+  # Accumulated rewards per token (12 decimal precision)
+  reward_per_token_stored_u12: BigInt!
+  # Unallocated rewards
+  unallocated_rewards: BigInt!
+  # Total rewards distributed historically
+  total_distributed: BigInt!
+}
+
+# - - - User Level Entities - - -
+
+"""
+User account data and aggregated statistics
+"""
+type MRUser @entity {
+  # User address
+  id: ID!
+  # Active staking positions
+  staked_balances: [MRUserStakedBalance!]! @derivedFrom(field: "user")
+  # Active pool subscriptions
+  subscriptions: [MRUserSubscription!]! @derivedFrom(field: "user")
+  # Account creation timestamp (unix seconds)
+  created_at: BigInt!
+}
+
+"""
+User staking position for a specific token
+"""
+type MRUserStakedBalance @entity {
+  # user_address-staking_token
+  id: ID!
+  # Reference to user account
+  user: MRUser!
+  # Staking token address
+  staking_token: String! @index
+  # Current staked amount
+  amount: BigInt!
+  # Associated pool subscriptions
+  subscriptions: [MRUserSubscription!]! @derivedFrom(field: "staked_balance")
+  # Last update timestamp (unix seconds)
+  last_update_time: BigInt!
+}
+
+"""
+User subscription to a staking pool
+"""
+type MRUserSubscription @entity {
+  # user_address-pool_address
+  id: ID!
+  # the user address
+  user_address: String! @index
+  # the staking pool address
+  pool_address: String! @index
+  # whether or not the user is currently subscribed to the staking pool
+  is_currently_subscribed: Boolean! @index
+  # Reference to staking pool
+  pool: MRStakingPool!
+  # Reference to user account
+  user: MRUser!
+  # Reference to user's staked balance
+  staked_balance: MRUserStakedBalance!
+  # Per-reward-token earnings data
+  user_reward_datas: [MRUserRewardData!]! @derivedFrom(field: "subscription")
+  # TODO: invesigate if we really need to store the very initial subscription timestamp
+  # since the multi_rewards module does not store this
+  # Initial subscription timestamp (unix seconds)
+  subscribed_at: BigInt!
+}
+
+"""
+User reward tracking data for a specific token
+"""
+type MRUserRewardData @entity {
+  # user_address-pool_address-reward_token
+  id: ID!
+  # Reference to pool subscription
+  subscription: MRUserSubscription!
+  # Reward token address
+  reward_token: String! @index
+  # Last recorded rewards per token (12 decimal precision)
+  reward_per_token_paid_u12: BigInt!
+  # Unclaimed rewards
+  unclaimed_rewards: BigInt!
+  # Total rewards claimed historically (derived from RewardClaimedEvents)
+  total_claimed: BigInt!
+}
+
+# - - - Event Entities - - -
+
+# TODO: rename these entities
+
+"""
+Event: New reward token added to pool
+"""
+type MRRewardAddedEvent @entity {
+  # pool_address-reward_token-reward_count
+  id: ID!
+  pool: MRStakingPool!
+  transaction_version: BigInt! @index
+  reward_token: String! @index
+  distributor: String! @index
+  duration: BigInt!
+  # event timestamp (unix seconds)
+  timestamp: BigInt! @index
+}
+
+"""
+Event: New rewards notified
+"""
+type MRRewardNotifiedEvent @entity {
+  # pool_address-reward_token-notify_count
+  id: ID!
+  pool: MRStakingPool!
+  transaction_version: BigInt! @index
+  reward_token: String! @index
+  reward_amount: BigInt!
+  reward_rate_u12: BigInt!
+  period_finish: BigInt!
+  # event timestamp (unix seconds)
+  timestamp: BigInt! @index
+}
+
+"""
+Event: Reward duration updated
+"""
+type MRRewardsDurationUpdatedEvent @entity {
+  # pool_address-reward_token-update_duration_count
+  id: ID!
+  pool: MRStakingPool!
+  transaction_version: BigInt! @index
+  reward_token: String! @index
+  new_duration: BigInt!
+  # event timestamp (unix seconds)
+  timestamp: BigInt! @index
+}
+
+"""
+Event: Tokens staked
+"""
+type MRStakeEvent @entity {
+  # user-staking_token-stake_count
+  id: ID!
+  user: MRUser!
+  transaction_version: BigInt! @index
+  staking_token: String! @index
+  amount: BigInt!
+  # event timestamp (unix seconds)
+  timestamp: BigInt! @index
+}
+
+"""
+Event: Tokens withdrawn
+"""
+type MRWithdrawEvent @entity {
+  # user-staking_token-withdrawal_count
+  id: ID!
+  user: MRUser!
+  transaction_version: BigInt! @index
+  staking_token: String! @index
+  amount: BigInt!
+  # event timestamp (unix seconds)
+  timestamp: BigInt! @index
+}
+
+"""
+Event: Pool subscription
+"""
+type SubscriptionEvent @entity {
+  # user-pool-subscription_count
+  id: ID!
+  pool: MRStakingPool!
+  user: MRUser!
+  transaction_version: BigInt! @index
+  staking_token: String! @index
+  # event timestamp (unix seconds)
+  timestamp: BigInt! @index
+}
+
+"""
+Event: Pool unsubscription
+"""
+type MRUnsubscriptionEvent @entity {
+  # user-pool-unsubscription_count
+  id: ID!
+  pool: MRStakingPool!
+  user: MRUser!
+  transaction_version: BigInt! @index
+  staking_token: String! @index
+  # event timestamp (unix seconds)
+  timestamp: BigInt! @index
+}
+
+"""
+Event: Rewards claimed by user
+"""
+type MRRewardClaimedEvent @entity {
+  # pool_address-user-reward_token-claim_count
+  id: ID!
+  pool: MRStakingPool!
+  user: MRUser!
+  transaction_version: BigInt! @index
+  reward_token: String! @index
+  claim_amount: BigInt!
+  # event timestamp (unix seconds)
+  timestamp: BigInt! @index
+}
+
+"""
+Event: Emergency withdrawal
+"""
+type MREmergencyWithdrawEvent @entity {
+  # user-staking_token-emergency_withdraw_count
+  id: ID!
+  user: MRUser!
+  transaction_version: BigInt! @index
+  staking_token: String! @index
+  amount: BigInt!
+  # event timestamp (unix seconds)
+  timestamp: BigInt! @index
+}
