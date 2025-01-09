@@ -5,7 +5,7 @@ import { ABIRoot } from "../../pkgs/surf/types/abi.js";
 import { ABITable, DefaultABITable } from "../../pkgs/surf/types/defaultABITable.js";
 import { EventName, EventFields } from "./types.js";
 
-// import { ABI } from "../../abis/multi-rewards-testnet.js";
+// import { multi_rewards_abi } from "../../abis/multi-rewards-testnet.js";
 
 export type HandlerIdMapping<TABI extends ABIRoot> = {
   [K in EventName<TABI>]?: number;
@@ -116,7 +116,7 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
  * The ID for each event must match its handler's position (0-based index)
  * in the processor's event handler chain.
  */
-// const multiRewardsHandlerIds: HandlerIdMapping<typeof ABI> = {
+// const multiRewardsHandlerIds: HandlerIdMapping<typeof multi_rewards_abi> = {
 //   StakingPoolCreatedEvent: 0,
 //   RewardAddedEvent: 1,
 //   // ...
@@ -124,7 +124,7 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
 
 // // Test setup
 // const service = new TestProcessorServer(() => import("../multi-rewards/multi-rewards-processor.js"));
-// const processor = new TestProcessor(ABI, multiRewardsHandlerIds, service);
+// const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
 
 // // In test
 // await processor.processEvent({

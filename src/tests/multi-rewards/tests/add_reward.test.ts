@@ -3,7 +3,7 @@ import assert from "assert";
 import { TestProcessorServer } from "@sentio/sdk/testing";
 
 import { MultiRewardsTestReader, resetTestDb } from "../../../processors/multi-rewards-processor.js";
-import { ABI } from "../../../abis/multi-rewards-testnet.js";
+import { multi_rewards_abi } from "../../../abis/multi-rewards-testnet.js";
 import { TestProcessor } from "../../utils/processor.js";
 import { multiRewardsHandlerIds } from "../common/constants.js";
 import { generateRandomAddress } from "../../common/helpers.js";
@@ -11,7 +11,7 @@ import { verifyRewardState } from "../common/helpers.js";
 
 describe("Add Reward", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
-  const processor = new TestProcessor(ABI, multiRewardsHandlerIds, service);
+  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
   const multiRewardsTestReader = new MultiRewardsTestReader();
 
   before(async () => {
