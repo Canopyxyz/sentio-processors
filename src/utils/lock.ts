@@ -1,26 +1,27 @@
-// Global sequential lock for event processing
 export class EventProcessingLock {
-  private currentOperation: Promise<void> = Promise.resolve();
+  private currentOperation: Promise<unknown> = Promise.resolve();
 
   async withLock<T>(operation: () => Promise<T>): Promise<T> {
-    const execute = async (): Promise<T> => {
-      try {
-        return await operation();
-      } catch (error) {
-        console.error("Event processing error:", error);
-        throw error; // Re-throw to ensure proper error handling
-      }
-    };
+    // Create a new promise that will become the currentOperation
+    let releaseLock: () => void;
+    const newLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
 
-    // Queue this operation behind any existing ones
-    const result = this.currentOperation.then(execute);
+    try {
+      // Wait for any previous operation to complete
+      await this.currentOperation;
 
-    // Update the current operation, ensuring cleanup happens
-    this.currentOperation = result.then(
-      () => {}, // Success case
-      () => {}, // Error case - ensure chain continues even after error
-    );
+      // Set this operation as the current one
+      this.currentOperation = newLock;
 
-    return result;
+      // Execute the operation
+      const result = await operation();
+
+      return result;
+    } finally {
+      // Release the lock after operation completes or fails
+      releaseLock!();
+    }
   }
 }

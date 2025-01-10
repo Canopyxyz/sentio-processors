@@ -45,7 +45,7 @@ export function multiRewardsProcessor(
   baseProcessor
     .bind({ startVersion })
     .onEventStakingPoolCreatedEvent(async (event, ctx) => {
-      await eventLockForMultiRewards.withLock(async () => {
+      return await eventLockForMultiRewards.withLock(async () => {
         const store = getStore(supportedChainId, ctx);
         const timestamp = getTimestampInSeconds(ctx.getTimestamp());
 
@@ -71,7 +71,7 @@ export function multiRewardsProcessor(
       });
     })
     .onEventRewardAddedEvent(async (event, ctx) => {
-      await eventLockForMultiRewards.withLock(async () => {
+      return await eventLockForMultiRewards.withLock(async () => {
         const store = getStore(supportedChainId, ctx);
         const timestamp = getTimestampInSeconds(ctx.getTimestamp());
 
@@ -124,7 +124,7 @@ export function multiRewardsProcessor(
       });
     })
     .onEventRewardNotifiedEvent(async (event, ctx) => {
-      await eventLockForMultiRewards.withLock(async () => {
+      return await eventLockForMultiRewards.withLock(async () => {
         const store = getStore(supportedChainId, ctx);
         const timestamp = getTimestampInSeconds(ctx.getTimestamp());
 
@@ -178,7 +178,7 @@ export function multiRewardsProcessor(
       });
     })
     .onEventRewardsDurationUpdatedEvent(async (event, ctx) => {
-      await eventLockForMultiRewards.withLock(async () => {
+      return await eventLockForMultiRewards.withLock(async () => {
         const store = getStore(supportedChainId, ctx);
         const timestamp = getTimestampInSeconds(ctx.getTimestamp());
 
@@ -220,7 +220,7 @@ export function multiRewardsProcessor(
       });
     })
     .onEventRewardClaimedEvent(async (event, ctx) => {
-      await eventLockForMultiRewards.withLock(async () => {
+      return await eventLockForMultiRewards.withLock(async () => {
         const store = getStore(supportedChainId, ctx);
         const timestamp = getTimestampInSeconds(ctx.getTimestamp());
         const userAddress = event.data_decoded.user;
@@ -286,8 +286,8 @@ export function multiRewardsProcessor(
       });
     })
     .onEventStakeEvent(async (event, ctx) => {
-      await eventLockForMultiRewards.withLock(async () => {
-        console.log("In StakeEvent 1");
+      return await eventLockForMultiRewards.withLock(async () => {
+        console.log(`In StakeEvent: ${ctx.transaction.hash}`);
         const store = getStore(supportedChainId, ctx);
         const timestampMicros = ctx.getTimestamp();
         const timestamp = getTimestampInSeconds(timestampMicros);
@@ -295,22 +295,14 @@ export function multiRewardsProcessor(
         const stakeAmount = event.data_decoded.amount;
         const staking_token = event.data_decoded.staking_token.inner;
 
-        console.log("In StakeEvent 2");
-
         const module = await getOrCreateModule(store);
         await incrementModuleStats(module, store, timestamp, "stake_count");
-
-        console.log("In StakeEvent 3");
 
         // Get or create user
         const user = await getOrCreateUser(userAddress, store, timestamp);
 
-        console.log("In StakeEvent 4");
-
         // Get or create user staked balance
         const userStakedBalance = await getOrCreateUserStakedBalance(userAddress, staking_token, store, timestamp);
-
-        console.log("In StakeEvent 5");
 
         // Get all active subscriptions for this user using list
         const activeSubscriptions = await store.list(MRUserSubscription, [
@@ -318,10 +310,21 @@ export function multiRewardsProcessor(
           { field: "is_currently_subscribed", op: "=", value: true },
         ]);
 
-        console.log(`In StakeEvent 6; ${activeSubscriptions.length}`);
+        // console.log(`In StakeEvent 6; ${activeSubscriptions.length}`);
 
         // Update rewards and total staked for each subscribed pool
         for (const subscription of activeSubscriptions) {
+          // TODO: the following validation is only to confirm if the live processor has the same issue
+          // as the local/test processor wrt filters: https://github.com/sentioxyz/sentio-sdk/issues/1099
+          // these checks effectively serve as invariants
+          if (subscription.userID.toString() !== userAddress) {
+            throw new Error("filter not working for user_address");
+          }
+
+          if (!subscription.is_currently_subscribed) {
+            throw new Error("filter not working for is_currently_subscribed");
+          }
+
           const pool = await getStakingPool(subscription.pool_address, store);
           if (!pool) continue;
 
@@ -335,8 +338,6 @@ export function multiRewardsProcessor(
             await store.upsert(pool);
           }
         }
-
-        console.log("In StakeEvent 7");
 
         // Update user's staked balance
         userStakedBalance.amount += stakeAmount;
@@ -352,19 +353,10 @@ export function multiRewardsProcessor(
           timestamp,
         });
 
-        console.log("In StakeEvent 8");
-
         // Persist updates
         await store.upsert(user);
-
-        console.log("In StakeEvent 8.1");
-
         await store.upsert(userStakedBalance);
-
-        console.log("In StakeEvent 8.2");
         await store.upsert(stakeEvent);
-
-        console.log("In StakeEvent 9");
 
         const fetchedUserStakedBalance = await getUserStakedBalance(userAddress, staking_token, store);
         /* eslint-disable */
@@ -375,7 +367,7 @@ export function multiRewardsProcessor(
       });
     })
     .onEventWithdrawEvent(async (event, ctx) => {
-      await eventLockForMultiRewards.withLock(async () => {
+      return await eventLockForMultiRewards.withLock(async () => {
         const store = getStore(supportedChainId, ctx);
         const timestamp = getTimestampInSeconds(ctx.getTimestamp());
         const userAddress = event.data_decoded.user;
@@ -393,6 +385,17 @@ export function multiRewardsProcessor(
 
         // First update rewards for all affected pools
         for (const subscription of activeSubscriptions) {
+          // TODO: the following validation is only to confirm if the live processor has the same issue
+          // as the local/test processor wrt filters: https://github.com/sentioxyz/sentio-sdk/issues/1099
+          // these checks effectively serve as invariants
+          if (subscription.userID.toString() !== userAddress) {
+            throw new Error("filter not working for user_address");
+          }
+
+          if (!subscription.is_currently_subscribed) {
+            throw new Error("filter not working for is_currently_subscribed");
+          }
+
           const pool = await getStakingPool(subscription.pool_address, store);
           if (!pool) continue;
 
@@ -438,8 +441,8 @@ export function multiRewardsProcessor(
       });
     })
     .onEventSubscriptionEvent(async (event, ctx) => {
-      await eventLockForMultiRewards.withLock(async () => {
-        console.log("In SubscriptionEvent");
+      return await eventLockForMultiRewards.withLock(async () => {
+        console.log(`In SubscriptionEvent: ${ctx.transaction.hash}`);
         const store = getStore(supportedChainId, ctx);
         const timestampMicros = ctx.getTimestamp();
         const timestamp = getTimestampInSeconds(timestampMicros);
@@ -509,7 +512,7 @@ export function multiRewardsProcessor(
       });
     })
     .onEventUnsubscriptionEvent(async (event, ctx) => {
-      await eventLockForMultiRewards.withLock(async () => {
+      return await eventLockForMultiRewards.withLock(async () => {
         const store = getStore(supportedChainId, ctx);
         const timestamp = getTimestampInSeconds(ctx.getTimestamp());
         const userAddress = event.data_decoded.user;
