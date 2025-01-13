@@ -1,5 +1,15 @@
+import { GLOBAL_CONFIG } from "@sentio/runtime";
 import { getSupportedAptosChainId, SupportedAptosChainId } from "./chains.js";
 import { setupMultiRewardsProcessor } from "./config.js"; // setupICHIVaultsProcessor
+
+// to avoid race conditions when event handlers not been called sequentially in the order of event emission
+// we set sequential to true
+// TODO: investigate if this is per processor or across processors, if it is across processors then create an issue to improve this
+// since processors are typically isolated from each other they can be executed in parallel though event handlers within a processor
+// should be executed sequentially
+GLOBAL_CONFIG.execution = {
+  sequential: true,
+};
 
 const { CHAIN_ID } = process.env;
 
