@@ -1,7 +1,7 @@
 import { vault as aptos_testnet_vault } from "./types/aptos/testnet/ichi-vaults-testnet.js";
 import { vault as aptos_mainnet_vault } from "./types/aptos/ichi-vaults.js";
 
-import { multi_rewards as multi_rewards_movement } from "./types/aptos/movement-porto/multi-rewards-movement.js";
+// import { multi_rewards as multi_rewards_movement } from "./types/aptos/movement-porto/multi-rewards-movement.js";
 import { multi_rewards as multi_rewards_testnet } from "./types/aptos/testnet/multi-rewards-testnet.js";
 
 import { liquidswapIchiVaultsProcessor } from "./processors/liquidswap-ichi-vault-processor.js";
@@ -48,9 +48,10 @@ export function getMultiRewardsBaseProcessor(chainId: SupportedAptosChainId) {
     case SupportedAptosChainId.APTOS_TESTNET: {
       return multi_rewards_testnet;
     }
-    case SupportedAptosChainId.MOVEMENT_PORTO: {
-      return multi_rewards_movement;
-    }
+    // No longer supported by sentio
+    // case SupportedAptosChainId.MOVEMENT_PORTO: {
+    //   return multi_rewards_movement;
+    // }
     default: {
       throw new Error(`MultiRewardsBaseProcessor is not defined for chain ${chainId}`);
     }

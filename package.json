@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@sentio/runtime": "^2.53.2",
-    "@sentio/sdk": "2.50.1",
+    "@sentio/sdk": "2.55.2",
     "@thalalabs/surf": "^1.7.3",
     "@typemove/aptos": "^1.6.12",
     "@typemove/move": "^1.6.12",
@@ -32,7 +32,7 @@
     "@eslint/js": "^9.16.0",
     "@jest/globals": "^29.7.0",
     "@sentio/bigdecimal": "9.1.1-patch.3",
-    "@sentio/cli": "2.23.0",
+    "@sentio/cli": "2.24.1",
     "@sentio/tsup": "8.3.5-rc.1",
     "@typescript-eslint/eslint-plugin": "^8.17.0",
     "@typescript-eslint/parser": "^8.17.0",
