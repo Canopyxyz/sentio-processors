@@ -72,7 +72,8 @@ export function liquidswapIchiVaultsProcessor(
       const vault = new LiquidSwapVault({
         id: event.data_decoded.vault_address,
         vault_address: event.data_decoded.vault_address,
-        vault_module: Promise.resolve(vault_module),
+        // vault_module: Promise.resolve(vault_module),
+        vault_moduleID: vault_module.id,
         token_id_name: event.data_decoded.token_id.name,
         token_id_creator: event.data_decoded.token_id.creator,
         collection: event.data_decoded.token_id.collection,
@@ -130,7 +131,7 @@ export function liquidswapIchiVaultsProcessor(
       const previous_deposit_event_id = await getPreviousDepositEvent(ctx);
       const deposit_event = new LiquidSwapDepositEvent({
         id: (previous_deposit_event_id + 1).toString(),
-        vault: Promise.resolve(vault),
+        vaultID: vault.id,
         // TODO: consider storing the tx hash i.e. ctx.transaction.hash
         transaction_block_height: 0n, // TODO: remove if there's no way to get the block height in sentio
         transaction_version: ctx.version,
@@ -177,7 +178,7 @@ export function liquidswapIchiVaultsProcessor(
       const previous_withdraw_event_id = await getPreviousWithdrawEvent(ctx);
       const withdraw_event = new LiquidSwapWithdrawEvent({
         id: (previous_withdraw_event_id + 1).toString(),
-        vault: Promise.resolve(vault),
+        vaultID: vault.id,
         transaction_block_height: 0n,
         transaction_version: ctx.version,
         user_address: event.data_decoded.user_address,
