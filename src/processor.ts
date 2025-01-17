@@ -1,7 +1,13 @@
+import { GLOBAL_CONFIG } from "@sentio/runtime";
+
 import { getSupportedAptosChainId, SupportedAptosChainId } from "./chains.js";
 import { setupMultiRewardsProcessor } from "./config.js"; // setupICHIVaultsProcessor
 
 const { CHAIN_ID } = process.env;
+
+GLOBAL_CONFIG.execution = {
+  sequential: true,
+};
 
 if (!CHAIN_ID) {
   throw new Error("please specify CHAIN_ID in .env");
