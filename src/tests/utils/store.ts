@@ -1,7 +1,7 @@
 import { Subject } from "rxjs";
 import { Store, StoreContext } from "@sentio/sdk/store";
 import { DeepPartial, ProcessStreamResponse } from "@sentio/sdk";
-import { MemoryDatabase } from "./memory-database.js";
+import { MemoryDatabase } from "@sentio/sdk/testing";
 
 let db: MemoryDatabase;
 export function createStore(): Store {

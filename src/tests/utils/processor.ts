@@ -84,6 +84,7 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
           rawTransaction: JSON.stringify({
             version: event.version,
             timestamp: this.latestTimestampMicros,
+            events: [event],
           }),
         },
       },
