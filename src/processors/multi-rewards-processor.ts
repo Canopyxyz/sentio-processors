@@ -1,5 +1,8 @@
 import { AptosContext } from "@sentio/sdk/aptos";
 import { Store } from "@sentio/sdk/store";
+
+import { red, yellow } from "colorette";
+
 import {
   MRModule,
   MRStakingPool,
@@ -281,6 +284,8 @@ export function multiRewardsProcessor(
       const stakeAmount = event.data_decoded.amount;
       const staking_token = event.data_decoded.staking_token;
 
+      console.log(yellow(`in StakeEvent; userAddress: ${userAddress}; stakeAmount: ${stakeAmount}`));
+
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "stake_count");
 
@@ -290,11 +295,24 @@ export function multiRewardsProcessor(
       // Get or create user staked balance
       const userStakedBalance = await getOrCreateUserStakedBalance(userAddress, staking_token, store, timestamp);
 
+      const userSubscriptions = await user.subscriptions();
+      console.log(red(`userSubscriptions length: ${userSubscriptions.length}`));
+
+      // FIXME: to demonstrate that the store.list call to get activeSubscriptions below also fails comment out the following for loop
+      for (const userSubscription of userSubscriptions) {
+        // FIXME: fails to get userSubscription.pool_address
+        console.log(red("fails to get userSubscription.pool_address"));
+        console.log(red(`userSubscription.pool_address: ${userSubscription.pool_address}`));
+      }
+
       // Get all active subscriptions for this user using list
       const activeSubscriptions = await store.list(MRUserSubscription, [
-        { field: "user_address", op: "=", value: userAddress },
+        { field: "userID", op: "=", value: userAddress },
         { field: "is_currently_subscribed", op: "=", value: true },
       ]);
+
+      // FIXME: the above filter call to get activeSubscriptions throws an error
+      console.log(red(`activeSubscriptions: ${activeSubscriptions.length}`));
 
       // Update rewards and total staked for each subscribed pool
       for (const subscription of activeSubscriptions) {
@@ -316,6 +334,8 @@ export function multiRewardsProcessor(
         if (pool.staking_token === event.data_decoded.staking_token) {
           // Update rewards before changing stake
           await updateRewards(pool, userAddress, timestamp, store);
+
+          console.log(yellow(`update total_subscribed for ${pool.id} by ${stakeAmount}`));
 
           // Update total subscribed
           pool.total_subscribed += stakeAmount;
@@ -422,6 +442,8 @@ export function multiRewardsProcessor(
       const poolAddress = event.data_decoded.pool_address;
       const staking_token = event.data_decoded.staking_token;
 
+      console.log(yellow(`in SubscriptionEvent; userAddress: ${userAddress}; poolAddress: ${poolAddress}`));
+
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "subscription_count");
 
@@ -437,12 +459,15 @@ export function multiRewardsProcessor(
         throw new Error("User has no staked balance");
       }
 
+      console.log(yellow(`in SubscriptionEvent; userStakedBalance: ${userStakedBalance.amount}`));
+
       // Get or create user
       const user = await getOrCreateUser(userAddress, store, timestamp);
 
       // Update rewards before modifying subscription state
       await updateRewards(pool, userAddress, timestamp, store);
 
+      // TODO: we only want to create a new MRUserSubscription if one doesn't already exist
       // Create new subscription
       const subscription = new MRUserSubscription({
         id: `${userAddress}-${poolAddress}`,
@@ -460,6 +485,9 @@ export function multiRewardsProcessor(
       pool.subscriber_count += 1;
       pool.total_subscribed += userStakedBalance.amount;
 
+      console.log(yellow(`in SubscriptionEvent; pool: ${pool.id}`));
+      console.log(yellow(`in SubscriptionEvent; total_subscribed: ${pool.total_subscribed}`));
+
       // Create subscription event
       const subscriptionEvent = new SubscriptionEvent({
         id: `${userAddress}-${poolAddress}-${module.subscription_count}`,
@@ -471,9 +499,17 @@ export function multiRewardsProcessor(
       });
 
       // Persist all updates
-      await store.upsert(subscription);
+      await store.upsert(subscription); // FIXME: MRUserSubscription should being added to the DB here
       await store.upsert(pool);
       await store.upsert(subscriptionEvent);
+
+      const storedSubscription = await store.get(MRUserSubscription, `${userAddress}-${poolAddress}`);
+      console.log(yellow(`storedSubscription.pool_address: ${storedSubscription?.pool_address}`));
+      // FIXME: storedSubscription.staked_balance should be defined
+      console.log(red(`storedSubscription staked_balance: ${await storedSubscription?.staked_balance()}`));
+      console.log(
+        red(`storedSubscription staked_balance amount: ${(await storedSubscription?.staked_balance())?.amount}`),
+      );
 
       // Update global module stats
     })
