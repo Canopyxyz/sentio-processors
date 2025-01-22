@@ -274,7 +274,6 @@ export function multiRewardsProcessor(
       await store.upsert(claimEvent);
     })
     .onEventStakeEvent(async (event, ctx) => {
-      console.log(`In StakeEvent: ${ctx.transaction.hash}`);
       const store = getStore(supportedChainId, ctx);
       const timestampMicros = ctx.getTimestamp();
       const timestamp = getTimestampInSeconds(timestampMicros);
@@ -296,8 +295,6 @@ export function multiRewardsProcessor(
         { field: "user_address", op: "=", value: userAddress },
         { field: "is_currently_subscribed", op: "=", value: true },
       ]);
-
-      // console.log(`In StakeEvent 6; ${activeSubscriptions.length}`);
 
       // Update rewards and total staked for each subscribed pool
       for (const subscription of activeSubscriptions) {
@@ -344,13 +341,6 @@ export function multiRewardsProcessor(
       await store.upsert(user);
       await store.upsert(userStakedBalance);
       await store.upsert(stakeEvent);
-
-      const fetchedUserStakedBalance = await getUserStakedBalance(userAddress, staking_token, store);
-      /* eslint-disable */
-        console.log(
-          `StakeEvent: timestamp: ${timestampMicros}; userAddress: ${userAddress}: staking_token: ${staking_token}; fetchedUserStakedBalance: ${!!fetchedUserStakedBalance}`,
-        );
-        /* eslint-enable */
     })
     .onEventWithdrawEvent(async (event, ctx) => {
       const store = getStore(supportedChainId, ctx);
@@ -425,7 +415,6 @@ export function multiRewardsProcessor(
       await store.upsert(withdrawEvent);
     })
     .onEventSubscriptionEvent(async (event, ctx) => {
-      console.log(`In SubscriptionEvent: ${ctx.transaction.hash}`);
       const store = getStore(supportedChainId, ctx);
       const timestampMicros = ctx.getTimestamp();
       const timestamp = getTimestampInSeconds(timestampMicros);
@@ -445,11 +434,6 @@ export function multiRewardsProcessor(
       // Get user staked balance
       const userStakedBalance = await getUserStakedBalance(userAddress, staking_token, store);
       if (!userStakedBalance || userStakedBalance.amount === 0n) {
-        /* eslint-disable */
-          console.log(
-            `SubscriptionEvent: timestamp: ${timestampMicros}; userAddress: ${userAddress}: staking_token: ${staking_token}; userStakedBalance: ${!!userStakedBalance}`,
-          );
-          /* eslint-enable */
         throw new Error("User has no staked balance");
       }
 
@@ -816,9 +800,9 @@ async function getOrCreateUserStakedBalance(
     await store.upsert(balance);
 
     // Update user's staked balances list
-    const staked_balances = await user.staked_balances;
+    const staked_balances = await user.staked_balances();
     staked_balances.push(balance);
-    user.staked_balances = Promise.resolve(staked_balances);
+    user._staked_balances = Promise.resolve(staked_balances);
     await store.upsert(user);
   }
 
