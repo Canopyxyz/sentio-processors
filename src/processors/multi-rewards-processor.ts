@@ -1,7 +1,7 @@
 import { AptosContext } from "@sentio/sdk/aptos";
 import { Store } from "@sentio/sdk/store";
 
-import { red, yellow } from "colorette";
+import { red, yellow, bgCyan } from "colorette";
 
 import {
   MRModule,
@@ -25,8 +25,6 @@ import {
 import { multi_rewards as multi_rewards_testnet } from "../types/aptos/testnet/multi-rewards-testnet.js";
 
 import { SupportedAptosChainId } from "../chains.js";
-
-import { createStore, resetDb } from "../tests/utils/store.js";
 
 // Constants
 const U12_PRECISION = 10n ** 12n;
@@ -346,9 +344,11 @@ export function multiRewardsProcessor(
       // Update user's staked balance
       userStakedBalance.amount += stakeAmount;
 
+      const stakeEventId = `${userAddress}-${staking_token}-${module.stake_count}`;
+
       // Create stake event
       const stakeEvent = new MRStakeEvent({
-        id: `${userAddress}-${staking_token}-${module.stake_count}`,
+        id: stakeEventId,
         userID: userAddress,
         // user: Promise.resolve(user),
         transaction_version: BigInt(ctx.version),
@@ -361,6 +361,11 @@ export function multiRewardsProcessor(
       await store.upsert(user);
       await store.upsert(userStakedBalance);
       await store.upsert(stakeEvent);
+
+      const storedStakeEvent = await store.get(MRStakeEvent, stakeEventId);
+      console.log(red(`FIXME: storedStakeEvent does exist in the handler with ID: ${stakeEventId}`));
+      console.log(storedStakeEvent?.amount);
+      console.log(stakeAmount);
     })
     .onEventWithdrawEvent(async (event, ctx) => {
       const store = getStore(supportedChainId, ctx);
@@ -608,6 +613,12 @@ async function getOrCreateModule(store: Store): Promise<MRModule> {
     });
 
     await store.upsert(module);
+
+    const storedModule = await store.get(MRModule, "1");
+
+    console.log(bgCyan("FIXME: stored MRModule does exist in event handler store"));
+    console.log(storedModule?.id);
+    // However it does not exist in the test store, see MultiRewardsTestReader.getModule
   }
   return module;
 }
@@ -847,58 +858,58 @@ async function getOrCreateUserStakedBalance(
 
 // - - - TEST ONLY HELPERS - - -
 
-let test_store = createStore(); // Only for use in tests
-
 function getStore(chain_id: SupportedAptosChainId, ctx: AptosContext): Store {
-  if (chain_id === SupportedAptosChainId.JESTNET || ctx.store === undefined) {
-    return test_store;
-  }
   return ctx.store;
 }
 
-export function resetTestDb() {
-  test_store = resetDb();
-}
-
 export class MultiRewardsTestReader {
+  constructor(private store: Store) {}
+
   async getModule(): Promise<MRModule | undefined> {
-    return test_store.get(MRModule, "1");
+    return this.store.get(MRModule, "1");
   }
 
   // Pool related getters
 
   async getStakingPool(poolAddress: string): Promise<MRStakingPool | undefined> {
-    return getStakingPool(poolAddress, test_store);
+    return getStakingPool(poolAddress, this.store);
   }
 
   async getPoolRewardData(poolId: string, rewardToken: string): Promise<MRPoolRewardData | undefined> {
-    return getRewardData(poolId, rewardToken, test_store);
+    return getRewardData(poolId, rewardToken, this.store);
   }
 
   // User related getters
 
   async getUser(userAddress: string): Promise<MRUser | undefined> {
-    return test_store.get(MRUser, userAddress);
+    return this.store.get(MRUser, userAddress);
   }
 
   async getUserSubscription(userAddress: string, poolId: string): Promise<MRUserSubscription | undefined> {
-    return getUserSubscription(userAddress, poolId, test_store);
+    return getUserSubscription(userAddress, poolId, this.store);
   }
 
   async getUserStakedBalance(userAddress: string, stakingToken: string): Promise<MRUserStakedBalance | undefined> {
-    return getUserStakedBalance(userAddress, stakingToken, test_store);
+    return getUserStakedBalance(userAddress, stakingToken, this.store);
   }
 
   // Event getters
 
   async getStakeEvent(user: string, stakingToken: string, stakeCount: number): Promise<MRStakeEvent | undefined> {
-    return test_store.get(MRStakeEvent, `${user}-${stakingToken}-${stakeCount}`);
+    const stakeEventId = `${user}-${stakingToken}-${stakeCount}`;
+    console.log(red(`FIXME: cannot get StakeEvent with local test store with ID: ${stakeEventId}`));
+    return this.store.get(MRStakeEvent, stakeEventId);
   }
 
   // Count getters
 
   async getStakeCount(): Promise<number> {
     const module = await this.getModule();
+
+    console.log(bgCyan("FIXME: MRModule does NOT exist test store"));
+    console.log(module);
+    console.log(module?.stake_count);
+
     return module?.stake_count ?? 0;
   }
 
