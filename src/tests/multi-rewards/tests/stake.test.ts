@@ -18,16 +18,16 @@ import { verifyStakeEvent, verifyUserState, verifyPoolState, verifyRewardState }
 describe("Stake", async () => {
   //  - - - setup local store and db - - -
 
-  const subject = new Subject<DeepPartial<ProcessStreamResponse>>()
-  const storeContext = new StoreContext(subject, 1)
-  const db = new MemoryDatabase(storeContext)
-  db.start()
+  // TODO: remove if the TestProcessorServer already creats a DB
+  const subject = new Subject<DeepPartial<ProcessStreamResponse>>();
+  const storeContext = new StoreContext(subject, 1);
+  const db = new MemoryDatabase(storeContext);
+  db.start();
 
   // - - - - - -
 
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
   const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
-
 
   // const INITIAL_BALANCE = 1_000_000n;
   const STAKE_AMOUNT = 100_000n;
@@ -220,10 +220,13 @@ describe("Stake", async () => {
   //   });
 
   // FIXME: this is problematic
-    test("Stake without existing pools", withStoreContext(storeContext, async () => {
+  test("Stake without existing pools", async () => {
 
-      const store = new Store(storeContext)
-      const multiRewardsTestReader = new MultiRewardsTestReader(store);
+    console.log("service:")
+    console.log(service)
+    console.log("service.store:", service.store)
+
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
 
       // Generate test addresses
       const userAddress = generateRandomAddress();
@@ -263,7 +266,7 @@ describe("Stake", async () => {
         stakedBalance: stakeAmount,
         subscribedPools: [], // No pools subscribed
       });
-    }));
+    });
 
   // FIXME: this is problematic
   // test("Stake with existing subscription", withStoreContext(storeContext, async () => {
