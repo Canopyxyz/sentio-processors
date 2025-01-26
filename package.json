@@ -17,7 +17,7 @@
     "fmt": "prettier --write '**/*.(ts|tsx)'"
   },
   "dependencies": {
-    "@sentio/sdk": "2.56.0-rc.3",
+    "@sentio/sdk": "2.57.0-rc.3",
     "@thalalabs/surf": "^1.7.3",
     "colorette": "^2.0.20",
     "decimal.js": "^10.4.3",

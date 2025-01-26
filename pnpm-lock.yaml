@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@sentio/sdk':
-        specifier: 2.56.0-rc.3
-        version: 2.56.0-rc.3(bufferutil@4.0.8)(encoding@0.1.13)(prettier@3.3.3)(typescript@5.6.3)(utf-8-validate@5.0.10)(vitest@2.0.5(@types/node@22.9.1))
+        specifier: 2.57.0-rc.3
+        version: 2.57.0-rc.3(bufferutil@4.0.8)(encoding@0.1.13)(prettier@3.3.3)(typescript@5.6.3)(utf-8-validate@5.0.10)(vitest@2.0.5(@types/node@22.9.1))
       '@thalalabs/surf':
         specifier: ^1.7.3
         version: 1.7.3(@aptos-labs/ts-sdk@1.33.1)
@@ -1043,11 +1043,11 @@ packages:
   '@js-sdsl/ordered-map@4.4.2':
     resolution: {integrity: sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw==}
 
-  '@mysten/bcs@1.2.0':
-    resolution: {integrity: sha512-LuKonrGdGW7dq/EM6U2L9/as7dFwnhZnsnINzB/vu08Xfrj0qzWwpLOiXagAa5yZOPLK7anRZydMonczFkUPzA==}
+  '@mysten/bcs@1.2.1':
+    resolution: {integrity: sha512-RMSaUsNb8oR0rTRVIOOcyoEVJqQi6DLvMXN+7mvDcki12FJFQ0lF89zQa7AV7cIurWlDQfJ8VIbCuRDyK+955A==}
 
-  '@mysten/sui@1.17.0':
-    resolution: {integrity: sha512-vL6QrH3l10dTatimPmz/feqMbYfEjvh8MPf3Xwn5tjuwDwBCS0ha1kdN+4vUpu6t0aCFviK+Df/vanORS8cbGQ==}
+  '@mysten/sui@1.20.0':
+    resolution: {integrity: sha512-/XLogwOYaSP31lPt377fj5b+8sRIyt2Opi/Ssos5dssPqol9vgvN/ZzV5Y5qVl4VquhATJHRpwV33B5rIVi7Ow==}
     engines: {node: '>=18'}
 
   '@noble/curves@1.2.0':
@@ -1308,17 +1308,17 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  '@sentio/protos@2.56.0-rc.3':
-    resolution: {integrity: sha512-nGI0EcZZ6R+VepnEXcI5ULq+QejddgHEVockxJbgEQqzbeP6243Sn02Z/5YJwmz0/d6h4x7Rwnxzg8iFF0KGDA==}
+  '@sentio/protos@2.57.0-rc.3':
+    resolution: {integrity: sha512-ClfC8XIOsTNT6v47JlGozjap6j7I6zFc8e4BL5kkYyPFlPT3klIDsrL95pcrSHanc1yNcc16kQtEE8I14U1qFw==}
     engines: {node: '>=20'}
 
-  '@sentio/runtime@2.56.0-rc.3':
-    resolution: {integrity: sha512-X7Urj87lbxn3gT8hM4pe0sICQboxiExpRCyLv+g92P8aVK0yp9pOWBfuAj3AnNOhrftR0Ws6AovzzwciSeOuyA==}
+  '@sentio/runtime@2.57.0-rc.3':
+    resolution: {integrity: sha512-IiE4J6NhH5/EwrxvWoV/u5/slUHsP9AbDKWaFyE8NQWXFoCANyb1Pm6TrEKWOuEm9yRGzpmh3HTwRQEEQzdeAA==}
     engines: {node: '>=20'}
     hasBin: true
 
-  '@sentio/sdk@2.56.0-rc.3':
-    resolution: {integrity: sha512-Ig/pOZftvHFlIZT5wjcW2zbO5V011jnW+b71H6rlKZgngErTNW2xz5WvBG50nDnmbt+rP0A+ZUm5PLlBsRIjUw==}
+  '@sentio/sdk@2.57.0-rc.3':
+    resolution: {integrity: sha512-iPYQ9bU0ccSWtY2MfRgM3UFJFutXQvc7ycmdPLp75GKGh3UtUhoVFbSse6YmbLGpPXoRsMwd4RHTkuwBqH1PDA==}
     engines: {node: '>=20'}
     peerDependencies:
       tsup: npm:@sentio/tsup@^8.3.5-rc.1
@@ -1403,15 +1403,15 @@ packages:
   '@tsconfig/node16@1.0.4':
     resolution: {integrity: sha512-vxhUy4J8lyeyinH7Azl1pdd43GJhZH/tP2weN8TntQblOY+A0XbT8DJk1/oCPuOOyg/Ja757rG0CgHcWC8OfMA==}
 
-  '@typemove/aptos@1.8.3':
-    resolution: {integrity: sha512-p8dqWae23rgasqvdUp2w4brgBtA1ZwvkFIzTklvc4esqFSR/qu3mbyzTNnpPLgP0VDNOc3Gkxb9LaYmlO1Wvsw==}
+  '@typemove/aptos@1.9.0':
+    resolution: {integrity: sha512-2FWjpVKggbjhXZ9yN7ZOo5g3x7Bsxz+uLzR6BNueMDa5SwBv6+oXBqDrc312ECbu0hRvUl8Z380GaL7G2OXNBg==}
     hasBin: true
 
-  '@typemove/move@1.8.3':
-    resolution: {integrity: sha512-c+r527++o1WXDivoFAkWPX9rYpLD2agKO7YGEYyw+E8HpcZeQ8OHiyXIKqUbXyA/yNBl04bMGH+hA4uYid1/2w==}
+  '@typemove/move@1.9.0':
+    resolution: {integrity: sha512-4XxTK4dtW5NkLE6wINCgQJoU239fF8KnJ7QCf08uXhwHxLtvhLcTQm61c/Kr0XcUdW8+BeCnIANYg1HbOm5eJw==}
 
-  '@typemove/sui@1.8.3':
-    resolution: {integrity: sha512-3rrI3palzchKT2tGev3YFXPO950UVyLVxwqbE6cUEBfsgOIo7R8C3OWpSYBz/ywdA4UvCVm1VdRlfb2v4Ew+aA==}
+  '@typemove/sui@1.9.0':
+    resolution: {integrity: sha512-9P1UlOjFFW9sYSULNZIZU1ULyPX85npZgUFHiY8b04vjI9mxHFJsO8uLjKzh85w2crAMvibE7o6inJaNo0g5xg==}
     hasBin: true
 
   '@types/babel__core@7.20.5':
@@ -4896,9 +4896,6 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  tweetnacl@1.0.3:
-    resolution: {integrity: sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==}
-
   type-check@0.4.0:
     resolution: {integrity: sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==}
     engines: {node: '>= 0.8.0'}
@@ -6371,14 +6368,14 @@ snapshots:
 
   '@js-sdsl/ordered-map@4.4.2': {}
 
-  '@mysten/bcs@1.2.0':
+  '@mysten/bcs@1.2.1':
     dependencies:
       bs58: 6.0.0
 
-  '@mysten/sui@1.17.0(typescript@5.6.3)':
+  '@mysten/sui@1.20.0(typescript@5.6.3)':
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@16.9.0)
-      '@mysten/bcs': 1.2.0
+      '@mysten/bcs': 1.2.1
       '@noble/curves': 1.6.0
       '@noble/hashes': 1.5.0
       '@scure/bip32': 1.5.0
@@ -6390,7 +6387,6 @@ snapshots:
       graphql: 16.9.0
       jose: 5.9.6
       poseidon-lite: 0.2.1
-      tweetnacl: 1.0.3
       valibot: 0.36.0
     transitivePeerDependencies:
       - '@gql.tada/svelte-support'
@@ -6754,7 +6750,7 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@sentio/protos@2.56.0-rc.3':
+  '@sentio/protos@2.57.0-rc.3':
     dependencies:
       google-protobuf: 3.21.4
       long: 5.2.3
@@ -6762,27 +6758,27 @@ snapshots:
       nice-grpc-common: 2.0.2
       protobufjs: 7.4.0
 
-  '@sentio/runtime@2.56.0-rc.3': {}
+  '@sentio/runtime@2.57.0-rc.3': {}
 
-  '@sentio/sdk@2.56.0-rc.3(bufferutil@4.0.8)(encoding@0.1.13)(prettier@3.3.3)(typescript@5.6.3)(utf-8-validate@5.0.10)(vitest@2.0.5(@types/node@22.9.1))':
+  '@sentio/sdk@2.57.0-rc.3(bufferutil@4.0.8)(encoding@0.1.13)(prettier@3.3.3)(typescript@5.6.3)(utf-8-validate@5.0.10)(vitest@2.0.5(@types/node@22.9.1))':
     dependencies:
       '@aptos-labs/ts-sdk': 1.33.1
       '@coral-xyz/anchor': 0.30.1(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@5.0.10)
       '@coral-xyz/borsh': 0.30.1(@solana/web3.js@1.95.8(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@5.0.10))
       '@fuel-ts/program': 0.97.2(encoding@0.1.13)(vitest@2.0.5(@types/node@22.9.1))
-      '@mysten/sui': 1.17.0(typescript@5.6.3)
+      '@mysten/sui': 1.20.0(typescript@5.6.3)
       '@prettier/sync': 0.5.2(prettier@3.3.3)
       '@sentio/abi-wan-kanabi': 2.2.2-1
       '@sentio/api': 1.0.2-rc.11
       '@sentio/bigdecimal': 9.1.1-patch.3
       '@sentio/chain': 2.4.2
       '@sentio/ethers-v6': 1.0.29(@sentio/ethers@6.13.1-patch.5(bufferutil@4.0.8)(utf-8-validate@5.0.10))(typescript@5.6.3)
-      '@sentio/protos': 2.56.0-rc.3
-      '@sentio/runtime': 2.56.0-rc.3
+      '@sentio/protos': 2.57.0-rc.3
+      '@sentio/runtime': 2.57.0-rc.3
       '@solana/web3.js': 1.95.8(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@5.0.10)
-      '@typemove/aptos': 1.8.3
-      '@typemove/move': 1.8.3
-      '@typemove/sui': 1.8.3(typescript@5.6.3)
+      '@typemove/aptos': 1.9.0
+      '@typemove/move': 1.9.0
+      '@typemove/sui': 1.9.0(typescript@5.6.3)
       bs58: 5.0.0
       chalk: 5.3.0
       csv-parse: 5.6.0
@@ -6908,10 +6904,10 @@ snapshots:
 
   '@tsconfig/node16@1.0.4': {}
 
-  '@typemove/aptos@1.8.3':
+  '@typemove/aptos@1.9.0':
     dependencies:
       '@aptos-labs/ts-sdk': 1.33.1
-      '@typemove/move': 1.8.3
+      '@typemove/move': 1.9.0
       chalk: 5.3.0
       commander: 12.1.0
       prettier: 3.3.3
@@ -6919,14 +6915,14 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  '@typemove/move@1.8.3':
+  '@typemove/move@1.9.0':
     dependencies:
       radash: 12.1.0
 
-  '@typemove/sui@1.8.3(typescript@5.6.3)':
+  '@typemove/sui@1.9.0(typescript@5.6.3)':
     dependencies:
-      '@mysten/sui': 1.17.0(typescript@5.6.3)
-      '@typemove/move': 1.8.3
+      '@mysten/sui': 1.20.0(typescript@5.6.3)
+      '@typemove/move': 1.9.0
       chalk: 5.3.0
       commander: 12.1.0
       prettier: 3.3.3
@@ -11102,8 +11098,6 @@ snapshots:
       get-tsconfig: 4.8.1
     optionalDependencies:
       fsevents: 2.3.3
-
-  tweetnacl@1.0.3: {}
 
   type-check@0.4.0:
     dependencies:
