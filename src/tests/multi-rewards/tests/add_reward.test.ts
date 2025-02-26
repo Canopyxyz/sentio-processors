@@ -1,356 +1,374 @@
-// import { before, beforeEach, describe, test } from "node:test";
-// import assert from "assert";
-// import { TestProcessorServer } from "@sentio/sdk/testing";
+import { afterEach, before, describe, test } from "node:test";
+import assert from "assert";
+import { TestProcessorServer, MemoryDatabase } from "@sentio/sdk/testing";
 
-// import { MultiRewardsTestReader, resetTestDb } from "../../../processors/multi-rewards-processor.js";
-// import { multi_rewards_abi } from "../../../abis/multi-rewards-testnet.js";
-// import { TestProcessor } from "../../utils/processor.js";
-// import { multiRewardsHandlerIds } from "../common/constants.js";
-// import { generateRandomAddress } from "../../common/helpers.js";
-// import { verifyRewardState } from "../common/helpers.js";
+import { Subject } from "rxjs";
+import { StoreContext } from "@sentio/sdk/store";
+import { DeepPartial, ProcessStreamResponse } from "@sentio/sdk";
 
-// describe("Add Reward", async () => {
-//   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
-//   const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
-//   const multiRewardsTestReader = new MultiRewardsTestReader();
+import { MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
+import { multi_rewards_abi } from "../../../abis/multi-rewards-testnet.js";
+import { TestProcessor } from "../../utils/processor.js";
+import { multiRewardsHandlerIds } from "../common/constants.js";
+import { generateRandomAddress } from "../../common/helpers.js";
+import { verifyRewardState } from "../common/helpers.js";
 
-//   before(async () => {
-//     await service.start();
-//   });
+describe("Add Reward", async () => {
+  //  - - - setup local store and db - - -
 
-//   beforeEach(async () => {
-//     resetTestDb();
-//   });
+  // TODO: remove if the TestProcessorServer already creats a DB
+  const subject = new Subject<DeepPartial<ProcessStreamResponse>>();
+  const storeContext = new StoreContext(subject, 1);
+  const db = new MemoryDatabase(storeContext);
+  db.start();
 
-//   test("Basic Add Reward", async () => {
-//     // Generate test data
-//     const poolAddress = generateRandomAddress();
-//     const stakingToken = generateRandomAddress();
-//     const rewardToken = generateRandomAddress();
-//     const creator = generateRandomAddress();
+  // - - - - - -
 
-//     // First create the pool
-//     await processor.processEvent({
-//       name: "StakingPoolCreatedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         staking_token: { inner: stakingToken },
-//         creator,
-//       },
-//     });
+  const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
+  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
 
-//     // Add reward to pool
-//     const rewardDuration = 86400; // 1 day, matching Move test
-//     await processor.processEvent({
-//       name: "RewardAddedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         reward_token: { inner: rewardToken },
-//         rewards_distributor: creator,
-//         rewards_duration: rewardDuration.toString(),
-//       },
-//     });
+  before(async () => {
+    await service.start();
+  });
 
-//     // Verify reward was added correctly
-//     await verifyRewardState(multiRewardsTestReader, poolAddress, {
-//       rewardToken,
-//       distributor: creator,
-//       duration: BigInt(rewardDuration),
-//       rewardBalance: 0n,
-//       unallocatedRewards: 0n,
-//       totalDistributed: 0n,
-//       rewardRateU12: 0n,
-//       rewardPerTokenStoredU12: 0n,
-//     });
+  afterEach(async () => {
+    db.reset();
+  });
 
-//     // Verify pool's reward tokens list was updated
-//     const pool = await multiRewardsTestReader.getStakingPool(poolAddress);
-//     assert(pool, "Pool should exist");
-//     assert.deepStrictEqual(pool.reward_tokens, [rewardToken], "Pool should have the reward token added");
-//   });
+  test("Basic Add Reward", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+    // Generate test data
+    const poolAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const creator = generateRandomAddress();
 
-//   test("Add Multiple Rewards", async () => {
-//     // Generate test data
-//     const poolAddress = generateRandomAddress();
-//     const stakingToken = generateRandomAddress();
-//     const creator = generateRandomAddress();
-//     const rewardToken1 = generateRandomAddress();
-//     const rewardToken2 = generateRandomAddress();
-//     const rewardToken3 = generateRandomAddress();
+    // First create the pool
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+        creator,
+      },
+    });
 
-//     // First create the pool
-//     await processor.processEvent({
-//       name: "StakingPoolCreatedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         staking_token: { inner: stakingToken },
-//         creator,
-//       },
-//     });
+    // Add reward to pool
+    const rewardDuration = 86400; // 1 day, matching Move test
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: creator,
+        rewards_duration: rewardDuration.toString(),
+      },
+    });
 
-//     // Add rewards with different durations (matching Move test)
-//     const rewardDuration1 = 86400; // 1 day
-//     const rewardDuration2 = 172800; // 2 days
-//     const rewardDuration3 = 259200; // 3 days
+    // Verify reward was added correctly
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken,
+      distributor: creator,
+      duration: BigInt(rewardDuration),
+      rewardBalance: 0n,
+      unallocatedRewards: 0n,
+      totalDistributed: 0n,
+      rewardRateU12: 0n,
+      rewardPerTokenStoredU12: 0n,
+    });
 
-//     // Add first reward
-//     await processor.processEvent({
-//       name: "RewardAddedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         reward_token: { inner: rewardToken1 },
-//         rewards_distributor: creator,
-//         rewards_duration: rewardDuration1.toString(),
-//       },
-//     });
+    // Verify pool's reward tokens list was updated
+    const pool = await multiRewardsTestReader.getStakingPool(poolAddress);
+    assert(pool, "Pool should exist");
+    assert.deepStrictEqual(pool.reward_tokens, [rewardToken], "Pool should have the reward token added");
+  });
 
-//     // Add second reward
-//     await processor.processEvent({
-//       name: "RewardAddedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         reward_token: { inner: rewardToken2 },
-//         rewards_distributor: creator,
-//         rewards_duration: rewardDuration2.toString(),
-//       },
-//     });
+  test("Add Multiple Rewards", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+    // Generate test data
+    const poolAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const creator = generateRandomAddress();
+    const rewardToken1 = generateRandomAddress();
+    const rewardToken2 = generateRandomAddress();
+    const rewardToken3 = generateRandomAddress();
 
-//     // Add third reward
-//     await processor.processEvent({
-//       name: "RewardAddedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         reward_token: { inner: rewardToken3 },
-//         rewards_distributor: creator,
-//         rewards_duration: rewardDuration3.toString(),
-//       },
-//     });
+    // First create the pool
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+        creator,
+      },
+    });
 
-//     // Verify each reward's state
-//     await verifyRewardState(multiRewardsTestReader, poolAddress, {
-//       rewardToken: rewardToken1,
-//       distributor: creator,
-//       duration: BigInt(rewardDuration1),
-//       rewardBalance: 0n,
-//       unallocatedRewards: 0n,
-//       totalDistributed: 0n,
-//       rewardRateU12: 0n,
-//       rewardPerTokenStoredU12: 0n,
-//     });
+    // Add rewards with different durations (matching Move test)
+    const rewardDuration1 = 86400; // 1 day
+    const rewardDuration2 = 172800; // 2 days
+    const rewardDuration3 = 259200; // 3 days
 
-//     await verifyRewardState(multiRewardsTestReader, poolAddress, {
-//       rewardToken: rewardToken2,
-//       distributor: creator,
-//       duration: BigInt(rewardDuration2),
-//       rewardBalance: 0n,
-//       unallocatedRewards: 0n,
-//       totalDistributed: 0n,
-//       rewardRateU12: 0n,
-//       rewardPerTokenStoredU12: 0n,
-//     });
+    // Add first reward
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken1 },
+        rewards_distributor: creator,
+        rewards_duration: rewardDuration1.toString(),
+      },
+    });
 
-//     await verifyRewardState(multiRewardsTestReader, poolAddress, {
-//       rewardToken: rewardToken3,
-//       distributor: creator,
-//       duration: BigInt(rewardDuration3),
-//       rewardBalance: 0n,
-//       unallocatedRewards: 0n,
-//       totalDistributed: 0n,
-//       rewardRateU12: 0n,
-//       rewardPerTokenStoredU12: 0n,
-//     });
+    // Add second reward
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken2 },
+        rewards_distributor: creator,
+        rewards_duration: rewardDuration2.toString(),
+      },
+    });
 
-//     // Verify pool's reward tokens list contains all three tokens
-//     const pool = await multiRewardsTestReader.getStakingPool(poolAddress);
-//     assert(pool, "Pool should exist");
-//     assert.deepStrictEqual(
-//       pool.reward_tokens,
-//       [rewardToken1, rewardToken2, rewardToken3],
-//       "Pool should have all three reward tokens in order",
-//     );
-//   });
+    // Add third reward
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken3 },
+        rewards_distributor: creator,
+        rewards_duration: rewardDuration3.toString(),
+      },
+    });
 
-//   test("Add Reward With Max Duration", async () => {
-//     // Generate test data
-//     const poolAddress = generateRandomAddress();
-//     const stakingToken = generateRandomAddress();
-//     const rewardToken = generateRandomAddress();
-//     const creator = generateRandomAddress();
+    // Verify each reward's state
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken: rewardToken1,
+      distributor: creator,
+      duration: BigInt(rewardDuration1),
+      rewardBalance: 0n,
+      unallocatedRewards: 0n,
+      totalDistributed: 0n,
+      rewardRateU12: 0n,
+      rewardPerTokenStoredU12: 0n,
+    });
 
-//     // First create the pool
-//     await processor.processEvent({
-//       name: "StakingPoolCreatedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         staking_token: { inner: stakingToken },
-//         creator,
-//       },
-//     });
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken: rewardToken2,
+      distributor: creator,
+      duration: BigInt(rewardDuration2),
+      rewardBalance: 0n,
+      unallocatedRewards: 0n,
+      totalDistributed: 0n,
+      rewardRateU12: 0n,
+      rewardPerTokenStoredU12: 0n,
+    });
 
-//     // Max duration: 2 years in seconds (matching MAX_DURATION in Move)
-//     const maxDuration = 86400n * 365n * 2n;
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken: rewardToken3,
+      distributor: creator,
+      duration: BigInt(rewardDuration3),
+      rewardBalance: 0n,
+      unallocatedRewards: 0n,
+      totalDistributed: 0n,
+      rewardRateU12: 0n,
+      rewardPerTokenStoredU12: 0n,
+    });
 
-//     // Add reward with max duration
-//     await processor.processEvent({
-//       name: "RewardAddedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         reward_token: { inner: rewardToken },
-//         rewards_distributor: creator,
-//         rewards_duration: maxDuration.toString(),
-//       },
-//     });
+    // Verify pool's reward tokens list contains all three tokens
+    const pool = await multiRewardsTestReader.getStakingPool(poolAddress);
+    assert(pool, "Pool should exist");
+    assert.deepStrictEqual(
+      pool.reward_tokens,
+      [rewardToken1, rewardToken2, rewardToken3],
+      "Pool should have all three reward tokens in order",
+    );
+  });
 
-//     // Verify reward state
-//     await verifyRewardState(multiRewardsTestReader, poolAddress, {
-//       rewardToken,
-//       distributor: creator,
-//       duration: BigInt(maxDuration),
-//       rewardBalance: 0n,
-//       unallocatedRewards: 0n,
-//       totalDistributed: 0n,
-//       rewardRateU12: 0n,
-//       rewardPerTokenStoredU12: 0n,
-//     });
+  test("Add Reward With Max Duration", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+    // Generate test data
+    const poolAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const creator = generateRandomAddress();
 
-//     // Verify pool's reward tokens list
-//     const pool = await multiRewardsTestReader.getStakingPool(poolAddress);
-//     assert(pool, "Pool should exist");
-//     assert.deepStrictEqual(pool.reward_tokens, [rewardToken], "Pool should have the reward token added");
-//   });
+    // First create the pool
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+        creator,
+      },
+    });
 
-//   test("Add Reward To Multiple Pools", async () => {
-//     // Generate test data
-//     const pool1Address = generateRandomAddress();
-//     const pool2Address = generateRandomAddress();
-//     const stakingToken1 = generateRandomAddress();
-//     const stakingToken2 = generateRandomAddress();
-//     const rewardToken = generateRandomAddress();
-//     const creator = generateRandomAddress();
-//     const rewardDuration = 86400; // 1 day, matching Move test
+    // Max duration: 2 years in seconds (matching MAX_DURATION in Move)
+    const maxDuration = 86400n * 365n * 2n;
 
-//     // Create first pool
-//     await processor.processEvent({
-//       name: "StakingPoolCreatedEvent",
-//       data: {
-//         pool_address: pool1Address,
-//         staking_token: { inner: stakingToken1 },
-//         creator,
-//       },
-//     });
+    // Add reward with max duration
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: creator,
+        rewards_duration: maxDuration.toString(),
+      },
+    });
 
-//     // Create second pool
-//     await processor.processEvent({
-//       name: "StakingPoolCreatedEvent",
-//       data: {
-//         pool_address: pool2Address,
-//         staking_token: { inner: stakingToken2 },
-//         creator,
-//       },
-//     });
+    // Verify reward state
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken,
+      distributor: creator,
+      duration: BigInt(maxDuration),
+      rewardBalance: 0n,
+      unallocatedRewards: 0n,
+      totalDistributed: 0n,
+      rewardRateU12: 0n,
+      rewardPerTokenStoredU12: 0n,
+    });
 
-//     // Add reward token to first pool
-//     await processor.processEvent({
-//       name: "RewardAddedEvent",
-//       data: {
-//         pool_address: pool1Address,
-//         reward_token: { inner: rewardToken },
-//         rewards_distributor: creator,
-//         rewards_duration: rewardDuration.toString(),
-//       },
-//     });
+    // Verify pool's reward tokens list
+    const pool = await multiRewardsTestReader.getStakingPool(poolAddress);
+    assert(pool, "Pool should exist");
+    assert.deepStrictEqual(pool.reward_tokens, [rewardToken], "Pool should have the reward token added");
+  });
 
-//     // Add same reward token to second pool
-//     await processor.processEvent({
-//       name: "RewardAddedEvent",
-//       data: {
-//         pool_address: pool2Address,
-//         reward_token: { inner: rewardToken },
-//         rewards_distributor: creator,
-//         rewards_duration: rewardDuration.toString(),
-//       },
-//     });
+  test("Add Reward To Multiple Pools", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+    // Generate test data
+    const pool1Address = generateRandomAddress();
+    const pool2Address = generateRandomAddress();
+    const stakingToken1 = generateRandomAddress();
+    const stakingToken2 = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const creator = generateRandomAddress();
+    const rewardDuration = 86400; // 1 day, matching Move test
 
-//     // Verify reward state in first pool
-//     await verifyRewardState(multiRewardsTestReader, pool1Address, {
-//       rewardToken,
-//       distributor: creator,
-//       duration: BigInt(rewardDuration),
-//       rewardBalance: 0n,
-//       unallocatedRewards: 0n,
-//       totalDistributed: 0n,
-//       rewardRateU12: 0n,
-//       rewardPerTokenStoredU12: 0n,
-//     });
+    // Create first pool
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        pool_address: pool1Address,
+        staking_token: { inner: stakingToken1 },
+        creator,
+      },
+    });
 
-//     // Verify reward state in second pool
-//     await verifyRewardState(multiRewardsTestReader, pool2Address, {
-//       rewardToken,
-//       distributor: creator,
-//       duration: BigInt(rewardDuration),
-//       rewardBalance: 0n,
-//       unallocatedRewards: 0n,
-//       totalDistributed: 0n,
-//       rewardRateU12: 0n,
-//       rewardPerTokenStoredU12: 0n,
-//     });
+    // Create second pool
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        pool_address: pool2Address,
+        staking_token: { inner: stakingToken2 },
+        creator,
+      },
+    });
 
-//     // Verify pools' reward tokens lists
-//     const pool1 = await multiRewardsTestReader.getStakingPool(pool1Address);
-//     const pool2 = await multiRewardsTestReader.getStakingPool(pool2Address);
-//     assert(pool1 && pool2, "Both pools should exist");
-//     assert.deepStrictEqual(pool1.reward_tokens, [rewardToken], "First pool should have the reward token");
-//     assert.deepStrictEqual(pool2.reward_tokens, [rewardToken], "Second pool should have the reward token");
-//   });
+    // Add reward token to first pool
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: pool1Address,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: creator,
+        rewards_duration: rewardDuration.toString(),
+      },
+    });
 
-//   test("Add Reward With Different Distributor", async () => {
-//     // Generate test data
-//     const poolAddress = generateRandomAddress();
-//     const stakingToken = generateRandomAddress();
-//     const rewardToken = generateRandomAddress();
-//     const creator = generateRandomAddress();
-//     const distributor = generateRandomAddress();
-//     const rewardDuration = 86400; // 1 day, matching Move test
+    // Add same reward token to second pool
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: pool2Address,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: creator,
+        rewards_duration: rewardDuration.toString(),
+      },
+    });
 
-//     // Verify creator and distributor are different addresses
-//     assert.notStrictEqual(creator, distributor, "Creator and distributor should be different addresses");
+    // Verify reward state in first pool
+    await verifyRewardState(multiRewardsTestReader, pool1Address, {
+      rewardToken,
+      distributor: creator,
+      duration: BigInt(rewardDuration),
+      rewardBalance: 0n,
+      unallocatedRewards: 0n,
+      totalDistributed: 0n,
+      rewardRateU12: 0n,
+      rewardPerTokenStoredU12: 0n,
+    });
 
-//     // First create the pool
-//     await processor.processEvent({
-//       name: "StakingPoolCreatedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         staking_token: { inner: stakingToken },
-//         creator,
-//       },
-//     });
+    // Verify reward state in second pool
+    await verifyRewardState(multiRewardsTestReader, pool2Address, {
+      rewardToken,
+      distributor: creator,
+      duration: BigInt(rewardDuration),
+      rewardBalance: 0n,
+      unallocatedRewards: 0n,
+      totalDistributed: 0n,
+      rewardRateU12: 0n,
+      rewardPerTokenStoredU12: 0n,
+    });
 
-//     // Add reward with different distributor
-//     await processor.processEvent({
-//       name: "RewardAddedEvent",
-//       data: {
-//         pool_address: poolAddress,
-//         reward_token: { inner: rewardToken },
-//         rewards_distributor: distributor, // Using different distributor address
-//         rewards_duration: rewardDuration.toString(),
-//       },
-//     });
+    // Verify pools' reward tokens lists
+    const pool1 = await multiRewardsTestReader.getStakingPool(pool1Address);
+    const pool2 = await multiRewardsTestReader.getStakingPool(pool2Address);
+    assert(pool1 && pool2, "Both pools should exist");
+    assert.deepStrictEqual(pool1.reward_tokens, [rewardToken], "First pool should have the reward token");
+    assert.deepStrictEqual(pool2.reward_tokens, [rewardToken], "Second pool should have the reward token");
+  });
 
-//     // Verify reward state
-//     await verifyRewardState(multiRewardsTestReader, poolAddress, {
-//       rewardToken,
-//       distributor: distributor, // Should match the different distributor
-//       duration: BigInt(rewardDuration),
-//       rewardBalance: 0n,
-//       unallocatedRewards: 0n,
-//       totalDistributed: 0n,
-//       rewardRateU12: 0n,
-//       rewardPerTokenStoredU12: 0n,
-//     });
+  test("Add Reward With Different Distributor", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+    // Generate test data
+    const poolAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const creator = generateRandomAddress();
+    const distributor = generateRandomAddress();
+    const rewardDuration = 86400; // 1 day, matching Move test
 
-//     // Verify pool's reward tokens list
-//     const pool = await multiRewardsTestReader.getStakingPool(poolAddress);
-//     assert(pool, "Pool should exist");
-//     assert.deepStrictEqual(pool.reward_tokens, [rewardToken], "Pool should have the reward token added");
-//   });
-// });
+    // Verify creator and distributor are different addresses
+    assert.notStrictEqual(creator, distributor, "Creator and distributor should be different addresses");
+
+    // First create the pool
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+        creator,
+      },
+    });
+
+    // Add reward with different distributor
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: distributor, // Using different distributor address
+        rewards_duration: rewardDuration.toString(),
+      },
+    });
+
+    // Verify reward state
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken,
+      distributor: distributor, // Should match the different distributor
+      duration: BigInt(rewardDuration),
+      rewardBalance: 0n,
+      unallocatedRewards: 0n,
+      totalDistributed: 0n,
+      rewardRateU12: 0n,
+      rewardPerTokenStoredU12: 0n,
+    });
+
+    // Verify pool's reward tokens list
+    const pool = await multiRewardsTestReader.getStakingPool(poolAddress);
+    assert(pool, "Pool should exist");
+    assert.deepStrictEqual(pool.reward_tokens, [rewardToken], "Pool should have the reward token added");
+  });
+});
