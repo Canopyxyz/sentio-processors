@@ -291,8 +291,13 @@ export function multiRewardsProcessor(
 
       // Get all active subscriptions for this user using list
       const activeSubscriptions = await store.list(MRUserSubscription, [
-        { field: "userID", op: "=", value: userAddress },
+        // scenario 1; this returns an empty array
+        { field: "user_address", op: "=", value: userAddress },
         { field: "is_currently_subscribed", op: "=", value: true },
+
+        // scenario 2; this throws an error
+        // { field: "userID", op: "=", value: userAddress },
+        // { field: "is_currently_subscribed", op: "=", value: true },
       ]);
 
       // Update rewards and total staked for each subscribed pool
