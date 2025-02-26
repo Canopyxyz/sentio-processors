@@ -1,10 +1,6 @@
 import { afterEach, before, describe, test } from "node:test";
 import assert from "assert";
-import { TestProcessorServer, MemoryDatabase } from "@sentio/sdk/testing";
-
-import { Subject } from "rxjs";
-import { StoreContext } from "@sentio/sdk/store";
-import { DeepPartial, ProcessStreamResponse } from "@sentio/sdk";
+import { TestProcessorServer } from "@sentio/sdk/testing";
 
 import { MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
 import { multi_rewards_abi } from "../../../abis/multi-rewards-testnet.js";
@@ -14,16 +10,6 @@ import { generateRandomAddress } from "../../common/helpers.js";
 import { verifyRewardState } from "../common/helpers.js";
 
 describe("Add Reward", async () => {
-  //  - - - setup local store and db - - -
-
-  // TODO: remove if the TestProcessorServer already creats a DB
-  const subject = new Subject<DeepPartial<ProcessStreamResponse>>();
-  const storeContext = new StoreContext(subject, 1);
-  const db = new MemoryDatabase(storeContext);
-  db.start();
-
-  // - - - - - -
-
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
   const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
 
@@ -32,7 +18,7 @@ describe("Add Reward", async () => {
   });
 
   afterEach(async () => {
-    db.reset();
+    service.db.reset();
   });
 
   test("Basic Add Reward", async () => {
