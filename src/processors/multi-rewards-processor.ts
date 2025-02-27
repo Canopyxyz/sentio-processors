@@ -357,11 +357,15 @@ export function multiRewardsProcessor(
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "withdrawal_count");
 
-      // Get active subscriptions for this user and staking token
-      const activeSubscriptions = await store.list(MRUserSubscription, [
+      // Get subscriptions by user first
+      const userSubscriptions = await store.list(MRUserSubscription, [
         { field: "user_address", op: "=", value: userAddress },
-        { field: "is_currently_subscribed", op: "=", value: true },
       ]);
+
+      // Then filter for active ones in JavaScript
+      const activeSubscriptions = userSubscriptions.filter(
+        (subscription) => subscription.is_currently_subscribed === true,
+      );
 
       // First update rewards for all affected pools
       for (const subscription of activeSubscriptions) {

@@ -768,6 +768,126 @@ describe("Stake", async () => {
   });
 
   test("Stake after unstake", async () => {
-    // Test staking after complete withdrawal
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const userAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const poolCreator = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const initialStake = 100000n;
+    const newStake = 50000n;
+
+    // Create a pool first
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: poolCreator,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(0),
+    });
+
+    // Initial stake
+    await processor.processEvent({
+      name: "StakeEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: initialStake.toString(),
+      },
+      timestamp: secondsToMicros(1),
+    });
+
+    // Subscribe to pool
+    await processor.processEvent({
+      name: "SubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(2),
+    });
+
+    // Verify initial state after staking and subscribing
+    await verifyUserState(multiRewardsTestReader, userAddress, {
+      stakingToken,
+      stakedBalance: initialStake,
+      subscribedPools: [poolAddress],
+    });
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: poolCreator,
+      totalSubscribed: initialStake,
+      subscriberCount: 1,
+    });
+
+    // Withdraw all staked tokens
+    await processor.processEvent({
+      name: "WithdrawEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: initialStake.toString(),
+      },
+      timestamp: secondsToMicros(3),
+    });
+
+    // Verify state after complete withdrawal
+    await verifyUserState(multiRewardsTestReader, userAddress, {
+      stakingToken,
+      stakedBalance: 0n,
+      subscribedPools: [poolAddress], // Still subscribed, but with 0 balance
+    });
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: poolCreator,
+      totalSubscribed: 0n, // No tokens staked
+      subscriberCount: 1, // User is still subscribed
+      withdrawalCount: 1,
+    });
+
+    // Stake again with a different amount
+    await processor.processEvent({
+      name: "StakeEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: newStake.toString(),
+      },
+      timestamp: secondsToMicros(4),
+    });
+
+    // Get stake count for verification
+    const stakeCount = await multiRewardsTestReader.getStakeCount();
+
+    // Verify stake event
+    await verifyStakeEvent(multiRewardsTestReader, {
+      user: userAddress,
+      staking_token: stakingToken,
+      amount: newStake,
+      timestamp: secondsToMicros(4),
+      stake_count: stakeCount,
+    });
+
+    // Verify final state after staking again
+    await verifyUserState(multiRewardsTestReader, userAddress, {
+      stakingToken,
+      stakedBalance: newStake,
+      subscribedPools: [poolAddress],
+    });
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: poolCreator,
+      totalSubscribed: newStake,
+      subscriberCount: 1,
+      withdrawalCount: 1,
+    });
   });
 });
