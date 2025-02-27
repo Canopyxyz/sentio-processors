@@ -252,7 +252,7 @@ type MRWithdrawEvent @entity {
 """
 Event: Pool subscription
 """
-type SubscriptionEvent @entity {
+type MRSubscriptionEvent @entity {
   # user-pool-subscription_count
   id: ID!
   pool: MRStakingPool!

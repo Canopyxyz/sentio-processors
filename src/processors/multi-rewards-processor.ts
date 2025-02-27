@@ -15,7 +15,7 @@ import {
   MRRewardsDurationUpdatedEvent,
   MRStakeEvent,
   MRWithdrawEvent,
-  SubscriptionEvent,
+  MRSubscriptionEvent,
   MRUnsubscriptionEvent,
 } from "../schema/schema.rewards.js";
 
@@ -320,7 +320,7 @@ export function multiRewardsProcessor(
           // Update rewards before changing stake
           await updateRewards(pool, userAddress, timestamp, store);
 
-          // Update total subscribed
+          // Update total subscribed with ONLY the newly staked amount
           pool.total_subscribed += stakeAmount;
           await store.upsert(pool);
         }
@@ -403,9 +403,12 @@ export function multiRewardsProcessor(
         const pool = await getStakingPool(subscription.pool_address, store);
         if (!pool) continue;
 
-        pool.total_subscribed -= withdrawAmount;
-        pool.withdrawal_count += 1; // Analytics only
-        await store.upsert(pool);
+        // Only update pools with matching staking token
+        if (pool.staking_token === event.data_decoded.staking_token) {
+          pool.total_subscribed -= withdrawAmount;
+          pool.withdrawal_count += 1; // Analytics only
+          await store.upsert(pool);
+        }
       }
 
       // Create withdraw event
@@ -452,26 +455,45 @@ export function multiRewardsProcessor(
       // Update rewards before modifying subscription state
       await updateRewards(pool, userAddress, timestamp, store);
 
-      // TODO: we only want to create a new MRUserSubscription if one doesn't already exist
-      // Create new subscription
-      const subscription = new MRUserSubscription({
-        id: `${userAddress}-${poolAddress}`,
-        poolID: pool.id,
-        userID: user.id,
-        user_address: userAddress,
-        pool_address: poolAddress,
-        staked_balanceID: userStakedBalance.id,
-        user_reward_datasIDs: [],
-        is_currently_subscribed: true,
-        subscribed_at: timestamp,
-      });
+      // Check if the user has had a previous subscription to this pool
+      const existingSubscription = await store.get(MRUserSubscription, `${userAddress}-${poolAddress}`);
+      let subscription;
 
-      // Update pool stats
-      pool.subscriber_count += 1;
-      pool.total_subscribed += userStakedBalance.amount;
+      if (!existingSubscription) {
+        // Create new subscription if one doesn't already exist
+        subscription = new MRUserSubscription({
+          id: `${userAddress}-${poolAddress}`,
+          poolID: pool.id,
+          userID: user.id,
+          user_address: userAddress,
+          pool_address: poolAddress,
+          staked_balanceID: userStakedBalance.id,
+          user_reward_datasIDs: [],
+          is_currently_subscribed: true,
+          subscribed_at: timestamp,
+        });
+
+        // Update pool stats for new subscription
+        pool.subscriber_count += 1;
+        pool.total_subscribed += userStakedBalance.amount;
+      } else {
+        // Update existing subscription
+        subscription = existingSubscription;
+
+        // Only update stats if they weren't already subscribed
+        if (!subscription.is_currently_subscribed) {
+          pool.subscriber_count += 1;
+          pool.total_subscribed += userStakedBalance.amount;
+
+          // Update subscription state
+          subscription.is_currently_subscribed = true;
+          subscription.subscribed_at = timestamp; // Update subscription time
+        }
+        // If they were already subscribed, nothing changes
+      }
 
       // Create subscription event
-      const subscriptionEvent = new SubscriptionEvent({
+      const subscriptionEvent = new MRSubscriptionEvent({
         id: `${userAddress}-${poolAddress}-${module.subscription_count}`,
         poolID: pool.id,
         userID: user.id,

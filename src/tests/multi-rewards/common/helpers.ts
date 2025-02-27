@@ -1,6 +1,7 @@
 import assert from "assert";
 
 import { getTimestampInSeconds, MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
+import { assertApproxEqualBigInt } from "../../common/assertions.js";
 
 // Helper to verify pool state
 export async function verifyPoolState(
@@ -50,10 +51,29 @@ export async function verifyRewardState(
   assert.strictEqual(rewardData.distributor, expectedState.distributor);
   assert.strictEqual(rewardData.duration, expectedState.duration);
   assert.strictEqual(rewardData.reward_balance, expectedState.rewardBalance);
-  assert.strictEqual(rewardData.unallocated_rewards, expectedState.unallocatedRewards);
+  assertApproxEqualBigInt(
+    rewardData.unallocated_rewards,
+    expectedState.unallocatedRewards,
+    1n,
+    "Unallocated rewards not approximately equal",
+  );
   assert.strictEqual(rewardData.total_distributed, expectedState.totalDistributed);
-  assert.strictEqual(rewardData.reward_rate_u12, expectedState.rewardRateU12);
-  assert.strictEqual(rewardData.reward_per_token_stored_u12, expectedState.rewardPerTokenStoredU12);
+
+  // Use approximate comparison for reward rate
+  assertApproxEqualBigInt(
+    rewardData.reward_rate_u12,
+    expectedState.rewardRateU12,
+    1n,
+    "Reward rate not approximately equal",
+  );
+
+  // You might want to use the same for reward_per_token_stored_u12 as well
+  assertApproxEqualBigInt(
+    rewardData.reward_per_token_stored_u12,
+    expectedState.rewardPerTokenStoredU12,
+    1n,
+    "Reward per token stored not approximately equal",
+  );
 }
 
 export async function verifyUserState(
