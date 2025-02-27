@@ -289,16 +289,15 @@ export function multiRewardsProcessor(
       // Get or create user staked balance
       const userStakedBalance = await getOrCreateUserStakedBalance(userAddress, staking_token, store, timestamp);
 
-      // Get all active subscriptions for this user using list
-      const activeSubscriptions = await store.list(MRUserSubscription, [
-        // scenario 1; this returns an empty array
+      // Get subscriptions by user first
+      const userSubscriptions = await store.list(MRUserSubscription, [
         { field: "user_address", op: "=", value: userAddress },
-        { field: "is_currently_subscribed", op: "=", value: true },
-
-        // scenario 2; this throws an error
-        // { field: "userID", op: "=", value: userAddress },
-        // { field: "is_currently_subscribed", op: "=", value: true },
       ]);
+
+      // Then filter for active ones in JavaScript
+      const activeSubscriptions = userSubscriptions.filter(
+        (subscription) => subscription.is_currently_subscribed === true,
+      );
 
       // Update rewards and total staked for each subscribed pool
       for (const subscription of activeSubscriptions) {
