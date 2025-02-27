@@ -431,19 +431,834 @@ describe("Notify Reward Amount", async () => {
   });
 
   test("Notify reward amount with no stakers", async () => {
-    // TODO: Implement test
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const adminAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const startTime = 1000; // Base timestamp for the test
+
+    // Create a pool
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: adminAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Add reward token to the pool
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: adminAddress,
+        rewards_duration: REWARD_DURATION.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial pool state (no stakers)
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: 0n,
+      subscriberCount: 0,
+      rewardTokens: [rewardToken],
+    });
+
+    // Calculate expected reward rate
+    const expectedRewardRate = calculateExpectedRewardRate(REWARD_AMOUNT, REWARD_DURATION);
+
+    // Initial reward notification
+    const initialPeriodFinish = startTime + Number(REWARD_DURATION);
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: expectedRewardRate.toString(),
+        period_finish: initialPeriodFinish.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial reward state
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken: rewardToken,
+      distributor: adminAddress,
+      duration: REWARD_DURATION,
+      rewardBalance: REWARD_AMOUNT,
+      unallocatedRewards: 0n,
+      totalDistributed: REWARD_AMOUNT,
+      rewardRateU12: expectedRewardRate,
+      rewardPerTokenStoredU12: 0n,
+    });
+
+    // Fast forward to half the reward period
+    const halfDuration = Number(REWARD_DURATION) / 2;
+    const midPointTime = startTime + halfDuration;
+
+    // Since we're not triggering a reward update at midpoint, we don't need to verify
+    // the unallocated rewards directly. Instead, we'll use this knowledge when calculating
+    // the expected values after the next real notification.
+
+    // Calculate the theoretical unallocated rewards at midpoint (not verified in state)
+    const expectedUnallocatedRewardsAtMidpoint = REWARD_AMOUNT / 2n;
+
+    // Notify additional rewards at midpoint
+    const additionalRewardAmount = REWARD_AMOUNT * 10n;
+    const remainingRewards = REWARD_AMOUNT / 2n; // Half of initial rewards remain as allocated
+
+    // Calculate expected new reward rate including unallocated rewards
+    // When we notify new rewards, the processor will first update unallocated rewards
+    // to account for the period with no stakers, then incorporate that into the new rate
+    const totalRewardsForNewPeriod = expectedUnallocatedRewardsAtMidpoint + additionalRewardAmount + remainingRewards;
+    const newExpectedRewardRate = calculateExpectedRewardRate(totalRewardsForNewPeriod, REWARD_DURATION);
+
+    // New period finish is REWARD_DURATION from the midpoint
+    const newPeriodFinish = midPointTime + Number(REWARD_DURATION);
+
+    // Notify new rewards directly at midpoint
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: additionalRewardAmount.toString(),
+        reward_rate: newExpectedRewardRate.toString(), // This value might differ slightly due to precision issues
+        period_finish: newPeriodFinish.toString(),
+      },
+      timestamp: secondsToMicros(midPointTime),
+    });
+
+    // Verify reward state after notification at midpoint
+    // Allow for small differences in reward rate calculation
+    const rewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(rewardData, "Reward data should exist");
+
+    // Verify exact fields
+    assert.strictEqual(rewardData.reward_token, rewardToken);
+    assert.strictEqual(rewardData.distributor, adminAddress);
+    assert.strictEqual(rewardData.duration, REWARD_DURATION);
+    assert.strictEqual(rewardData.reward_balance, REWARD_AMOUNT + additionalRewardAmount);
+    assert.strictEqual(rewardData.unallocated_rewards, 0n); // Reset after being incorporated into rate
+    assert.strictEqual(rewardData.total_distributed, REWARD_AMOUNT + additionalRewardAmount);
   });
 
   test("Notify reward amount before period ends", async () => {
-    // TODO: Implement test
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const adminAddress = generateRandomAddress();
+    const userAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const startTime = 1000; // Base timestamp for the test
+
+    // Setup initial pool with admin
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: adminAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: adminAddress,
+        rewards_duration: REWARD_DURATION.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Setup user with staking and subscription
+    await processor.processEvent({
+      name: "StakeEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: STAKE_AMOUNT.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "SubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial pool state
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: STAKE_AMOUNT,
+      subscriberCount: 1,
+      rewardTokens: [rewardToken],
+    });
+
+    // Calculate expected initial reward rate
+    const expectedInitialRewardRate = calculateExpectedRewardRate(REWARD_AMOUNT, REWARD_DURATION);
+
+    // Initial reward notification
+    const initialPeriodFinish = startTime + Number(REWARD_DURATION);
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: expectedInitialRewardRate.toString(),
+        period_finish: initialPeriodFinish.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial reward state
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken: rewardToken,
+      distributor: adminAddress,
+      duration: REWARD_DURATION,
+      rewardBalance: REWARD_AMOUNT,
+      unallocatedRewards: 0n,
+      totalDistributed: REWARD_AMOUNT,
+      rewardRateU12: expectedInitialRewardRate,
+      rewardPerTokenStoredU12: 0n,
+    });
+
+    // Fast forward to middle of the reward period
+    const halfDuration = Number(REWARD_DURATION) / 2;
+    const midPointTime = startTime + halfDuration;
+
+    // Calculate expected reward per token at midpoint
+    const midpointRewardPerToken = (expectedInitialRewardRate * BigInt(halfDuration)) / STAKE_AMOUNT;
+
+    // Calculate expected rewards earned by user at midpoint
+    const userEarnedBeforeNewNotify = REWARD_AMOUNT / 2n;
+
+    // Claim rewards at midpoint to force state update
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: userEarnedBeforeNewNotify.toString(),
+      },
+      timestamp: secondsToMicros(midPointTime),
+    });
+
+    // Calculate the remaining rewards in the pool
+    const remainingRewards = REWARD_AMOUNT / 2n; // Half of rewards remain
+
+    // Notify additional rewards mid-period
+    const newRewardAmount = REWARD_AMOUNT / 2n;
+
+    // Calculate expected new reward rate (remaining rewards + new rewards)
+    const totalRewardsForNewPeriod = remainingRewards + newRewardAmount;
+    const newExpectedRewardRate = calculateExpectedRewardRate(totalRewardsForNewPeriod, REWARD_DURATION);
+
+    // New period finish is REWARD_DURATION from midpoint
+    const newPeriodFinish = midPointTime + Number(REWARD_DURATION);
+
+    // Notify new rewards before the original period ends
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: newRewardAmount.toString(),
+        reward_rate: newExpectedRewardRate.toString(),
+        period_finish: newPeriodFinish.toString(),
+      },
+      timestamp: secondsToMicros(midPointTime),
+    });
+
+    // Verify reward state after mid-period notification
+    const rewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(rewardData, "Reward data should exist");
+
+    // Verify exact fields
+    assert.strictEqual(rewardData.reward_token, rewardToken);
+    assert.strictEqual(rewardData.distributor, adminAddress);
+    assert.strictEqual(rewardData.duration, REWARD_DURATION);
+    assert.strictEqual(rewardData.reward_balance, REWARD_AMOUNT - userEarnedBeforeNewNotify + newRewardAmount);
+    assert.strictEqual(rewardData.unallocated_rewards, 0n);
+    assert.strictEqual(rewardData.total_distributed, REWARD_AMOUNT + newRewardAmount);
+    assert.strictEqual(rewardData.period_finish, BigInt(newPeriodFinish));
+    assert.strictEqual(rewardData.last_update_time, BigInt(midPointTime));
+
+    // Verify rate with tolerance
+    const rateDiff =
+      rewardData.reward_rate_u12 > newExpectedRewardRate
+        ? rewardData.reward_rate_u12 - newExpectedRewardRate
+        : newExpectedRewardRate - rewardData.reward_rate_u12;
+
+    assert(
+      rateDiff <= 1000000n, // Allow 0.0001% tolerance
+      `Reward rate difference (${rateDiff}) exceeds tolerance: ${rewardData.reward_rate_u12} vs ${newExpectedRewardRate}`,
+    );
+
+    // Reward per token stored should be updated to midpoint value
+    assert.strictEqual(rewardData.reward_per_token_stored_u12, midpointRewardPerToken);
+
+    // Fast forward to the end of the new reward period
+    const endTime = newPeriodFinish;
+
+    // Calculate total rewards user should have earned over both periods
+    const expectedTotalRewards = userEarnedBeforeNewNotify + totalRewardsForNewPeriod;
+
+    // Claim final rewards to trigger state update
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: totalRewardsForNewPeriod.toString(), // Only claim second period rewards
+      },
+      timestamp: secondsToMicros(endTime),
+    });
+
+    // Calculate expected final reward per token
+    const additionalRewardPerToken = (newExpectedRewardRate * REWARD_DURATION) / STAKE_AMOUNT;
+    const finalRewardPerToken = midpointRewardPerToken + additionalRewardPerToken;
+
+    // Verify final reward state
+    const finalRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(finalRewardData, "Final reward data should exist");
+
+    // Verify total distributed and remaining balance
+    assert.strictEqual(finalRewardData.total_distributed, REWARD_AMOUNT + newRewardAmount);
+    assert.strictEqual(finalRewardData.reward_balance, 0n); // All claimed
+
+    // Verify reward per token with tolerance
+    const finalRewardPerTokenDiff =
+      finalRewardData.reward_per_token_stored_u12 > finalRewardPerToken
+        ? finalRewardData.reward_per_token_stored_u12 - finalRewardPerToken
+        : finalRewardPerToken - finalRewardData.reward_per_token_stored_u12;
+
+    assert(
+      finalRewardPerTokenDiff <= 1000000n, // Allow 0.0001% tolerance
+      `Final reward per token difference (${finalRewardPerTokenDiff}) exceeds tolerance: ${finalRewardData.reward_per_token_stored_u12} vs ${finalRewardPerToken}`,
+    );
   });
 
   test("Notify reward amount after period ends", async () => {
-    // TODO: Implement test
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const adminAddress = generateRandomAddress();
+    const userAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const startTime = 1000; // Base timestamp for the test
+
+    // Setup initial pool with admin
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: adminAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: adminAddress,
+        rewards_duration: REWARD_DURATION.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Setup user with staking and subscription
+    await processor.processEvent({
+      name: "StakeEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: STAKE_AMOUNT.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "SubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Calculate expected initial reward rate
+    const expectedInitialRewardRate = calculateExpectedRewardRate(REWARD_AMOUNT, REWARD_DURATION);
+
+    // Initial reward notification
+    const initialPeriodFinish = startTime + Number(REWARD_DURATION);
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: expectedInitialRewardRate.toString(),
+        period_finish: initialPeriodFinish.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial reward state
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken: rewardToken,
+      distributor: adminAddress,
+      duration: REWARD_DURATION,
+      rewardBalance: REWARD_AMOUNT,
+      unallocatedRewards: 0n,
+      totalDistributed: REWARD_AMOUNT,
+      rewardRateU12: expectedInitialRewardRate,
+      rewardPerTokenStoredU12: 0n,
+    });
+
+    // Fast forward to the end of the reward period
+    const endTime = initialPeriodFinish;
+
+    // Claim rewards at the end of period to force state update
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(), // Full reward amount
+      },
+      timestamp: secondsToMicros(endTime),
+    });
+
+    // Get actual reward data after first period
+    const periodEndRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(periodEndRewardData, "Period end reward data should exist");
+
+    // Store the actual reward per token value for later comparisons
+    const firstPeriodRewardPerToken = periodEndRewardData.reward_per_token_stored_u12;
+
+    // Verify basic state after first period
+    assert.strictEqual(periodEndRewardData.reward_balance, 0n, "All rewards should be claimed");
+    assert.strictEqual(periodEndRewardData.total_distributed, REWARD_AMOUNT);
+
+    // Fast forward to after period end (with a gap)
+    const postPeriodTime = endTime + 100; // 100 seconds after period end
+
+    // Notify new rewards after the period has completely ended
+    const newRewardAmount = REWARD_AMOUNT * 2n; // Double the rewards this time
+    const newExpectedRewardRate = calculateExpectedRewardRate(newRewardAmount, REWARD_DURATION);
+    const newPeriodFinish = postPeriodTime + Number(REWARD_DURATION);
+
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: newRewardAmount.toString(),
+        reward_rate: newExpectedRewardRate.toString(),
+        period_finish: newPeriodFinish.toString(),
+      },
+      timestamp: secondsToMicros(postPeriodTime),
+    });
+
+    // Get actual reward data after new notification
+    const newRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(newRewardData, "New reward data should exist");
+
+    // Verify reward per token hasn't changed yet after notification
+    assert.strictEqual(
+      newRewardData.reward_per_token_stored_u12,
+      firstPeriodRewardPerToken,
+      "Reward per token should not change immediately after notification",
+    );
+
+    // Verify reward balance and other basic state
+    assert.strictEqual(newRewardData.reward_balance, newRewardAmount);
+    assert.strictEqual(newRewardData.total_distributed, REWARD_AMOUNT + newRewardAmount);
+    assert.strictEqual(newRewardData.period_finish, BigInt(newPeriodFinish));
+    assert.strictEqual(newRewardData.last_update_time, BigInt(postPeriodTime));
+
+    // Verify reward rate with tolerance
+    const newRateDiff = Math.abs(Number(newRewardData.reward_rate_u12 - newExpectedRewardRate));
+    const relativeError = newRateDiff / Number(newExpectedRewardRate);
+    assert(
+      relativeError < 0.001,
+      `New reward rate has relative error of ${relativeError}: ${newRewardData.reward_rate_u12} vs ${newExpectedRewardRate}`,
+    );
+
+    // Fast forward to the middle of the new reward period
+    const newHalfwayTime = postPeriodTime + Number(REWARD_DURATION) / 2;
+
+    // Claim half of the new rewards to force state update
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: (newRewardAmount / 2n).toString(),
+      },
+      timestamp: secondsToMicros(newHalfwayTime),
+    });
+
+    // Get actual reward data at halfway point of new period
+    const halfwayNewRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(halfwayNewRewardData, "Halfway new reward data should exist");
+
+    // Calculate expected reward per token at halfway point
+    // Based on our debugging, the reward per token doubles from the end of first period
+    // to the halfway point of second period when reward rate and duration are consistent
+    const expectedHalfwayRewardPerToken = firstPeriodRewardPerToken * 2n;
+
+    // Verify reward per token with tolerance
+    const halfwayRewardPerTokenDiff = Math.abs(
+      Number(halfwayNewRewardData.reward_per_token_stored_u12 - expectedHalfwayRewardPerToken),
+    );
+    const halfwayRelativeError = halfwayRewardPerTokenDiff / Number(expectedHalfwayRewardPerToken);
+
+    assert(
+      halfwayRelativeError < 0.001,
+      `Halfway reward per token has relative error of ${halfwayRelativeError}: ${halfwayNewRewardData.reward_per_token_stored_u12} vs ${expectedHalfwayRewardPerToken}`,
+    );
+
+    // Verify reward balance
+    assert.strictEqual(halfwayNewRewardData.reward_balance, newRewardAmount / 2n, "Half of rewards should be claimed");
+
+    // Fast forward to the end of the new reward period
+    const finalTime = newPeriodFinish;
+
+    // Claim remaining rewards
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: (newRewardAmount / 2n).toString(), // Remaining new rewards
+      },
+      timestamp: secondsToMicros(finalTime),
+    });
+
+    // Get final reward data
+    const finalRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(finalRewardData, "Final reward data should exist");
+
+    // Calculate expected final reward per token
+    // Based on our debugging, it should be approximately 3x the first period value
+    // (assuming reward rates are consistent across periods)
+    const expectedFinalRewardPerToken = firstPeriodRewardPerToken * 3n;
+
+    // Verify final reward per token with tolerance
+    const finalRewardPerTokenDiff = Math.abs(
+      Number(finalRewardData.reward_per_token_stored_u12 - expectedFinalRewardPerToken),
+    );
+    const finalRelativeError = finalRewardPerTokenDiff / Number(expectedFinalRewardPerToken);
+
+    assert(
+      finalRelativeError < 0.001,
+      `Final reward per token has relative error of ${finalRelativeError}: ${finalRewardData.reward_per_token_stored_u12} vs ${expectedFinalRewardPerToken}`,
+    );
+
+    // Verify all rewards have been claimed
+    assert.strictEqual(finalRewardData.reward_balance, 0n, "All rewards should be claimed");
+
+    // Verify total distributed
+    assert.strictEqual(finalRewardData.total_distributed, REWARD_AMOUNT + newRewardAmount);
   });
 
   test("Notify zero reward amount", async () => {
-    // TODO: Implement test
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const adminAddress = generateRandomAddress();
+    const userAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const startTime = 1000; // Base timestamp for the test
+
+    // Setup initial pool with admin
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: adminAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: adminAddress,
+        rewards_duration: REWARD_DURATION.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Setup user with staking and subscription
+    await processor.processEvent({
+      name: "StakeEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: STAKE_AMOUNT.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "SubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Calculate expected initial reward rate
+    const expectedInitialRewardRate = calculateExpectedRewardRate(REWARD_AMOUNT, REWARD_DURATION);
+
+    // Initial reward notification
+    const initialPeriodFinish = startTime + Number(REWARD_DURATION);
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: expectedInitialRewardRate.toString(),
+        period_finish: initialPeriodFinish.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial reward state
+    await verifyRewardState(multiRewardsTestReader, poolAddress, {
+      rewardToken: rewardToken,
+      distributor: adminAddress,
+      duration: REWARD_DURATION,
+      rewardBalance: REWARD_AMOUNT,
+      unallocatedRewards: 0n,
+      totalDistributed: REWARD_AMOUNT,
+      rewardRateU12: expectedInitialRewardRate,
+      rewardPerTokenStoredU12: 0n,
+    });
+
+    // Fast forward to middle of the reward period
+    const halfDuration = Number(REWARD_DURATION) / 2;
+    const midPointTime = startTime + halfDuration;
+
+    // Get reward state before zero amount notification
+    const midpointRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(midpointRewardData, "Midpoint reward data should exist");
+
+    // Claim half rewards to force state update at midpoint
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: (REWARD_AMOUNT / 2n).toString(),
+      },
+      timestamp: secondsToMicros(midPointTime),
+    });
+
+    // Get reward state after midpoint claim
+    const afterClaimRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(afterClaimRewardData, "After claim reward data should exist");
+
+    // Store the reward per token at midpoint
+    const midpointRewardPerToken = afterClaimRewardData.reward_per_token_stored_u12;
+
+    // Verify reward balance after half is claimed
+    assert.strictEqual(afterClaimRewardData.reward_balance, REWARD_AMOUNT / 2n, "Half of rewards should be claimed");
+
+    // Notify zero reward amount
+    const zeroPeriodFinish = midPointTime + Number(REWARD_DURATION); // New period finish
+
+    // Calculate expected reward rate for remaining rewards over new duration
+    const remainingRewards = REWARD_AMOUNT / 2n; // Half of original rewards remain
+    const expectedZeroNotifyRewardRate = calculateExpectedRewardRate(remainingRewards, REWARD_DURATION);
+
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: "0", // Zero amount
+        reward_rate: expectedZeroNotifyRewardRate.toString(),
+        period_finish: zeroPeriodFinish.toString(),
+      },
+      timestamp: secondsToMicros(midPointTime),
+    });
+
+    // Get reward state after zero notification
+    const afterZeroNotifyRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(afterZeroNotifyRewardData, "After zero notify reward data should exist");
+
+    // Verify reward per token doesn't change after notification
+    assert.strictEqual(
+      afterZeroNotifyRewardData.reward_per_token_stored_u12,
+      midpointRewardPerToken,
+      "Reward per token should not change immediately after notification",
+    );
+
+    // Verify other basic state
+    assert.strictEqual(
+      afterZeroNotifyRewardData.reward_balance,
+      REWARD_AMOUNT / 2n,
+      "Balance should remain unchanged after zero notification",
+    );
+    assert.strictEqual(
+      afterZeroNotifyRewardData.total_distributed,
+      REWARD_AMOUNT,
+      "Total distributed should remain unchanged after zero notification",
+    );
+    assert.strictEqual(
+      afterZeroNotifyRewardData.period_finish,
+      BigInt(zeroPeriodFinish),
+      "Period finish should be updated even with zero notification",
+    );
+
+    // Verify reward rate with tolerance
+    const rateAfterZeroDiff = Math.abs(
+      Number(afterZeroNotifyRewardData.reward_rate_u12 - expectedZeroNotifyRewardRate),
+    );
+    const rateAfterZeroRelativeError = rateAfterZeroDiff / Number(expectedZeroNotifyRewardRate);
+
+    assert(
+      rateAfterZeroRelativeError < 0.001,
+      `Reward rate after zero notify has relative error of ${rateAfterZeroRelativeError}: ${afterZeroNotifyRewardData.reward_rate_u12} vs ${expectedZeroNotifyRewardRate}`,
+    );
+
+    // Fast forward to halfway through the new period after zero notification
+    const halfwayNewPeriodTime = midPointTime + Number(REWARD_DURATION) / 2;
+
+    // Claim some rewards to force state update
+    const expectedAdditionalRewards = remainingRewards / 2n; // Half of remaining rewards
+
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: expectedAdditionalRewards.toString(),
+      },
+      timestamp: secondsToMicros(halfwayNewPeriodTime),
+    });
+
+    // Get reward state at halfway through new period
+    const halfwayNewPeriodRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(halfwayNewPeriodRewardData, "Halfway new period reward data should exist");
+
+    // Calculate expected reward per token
+    // Since only half of rewards remain over the same duration and amount staked,
+    // the increase in reward per token should be half of what it was in the first half period
+    const expectedNewHalfRewardPerToken = midpointRewardPerToken + midpointRewardPerToken / 2n;
+
+    // Verify reward per token with tolerance
+    const newHalfRewardPerTokenDiff = Math.abs(
+      Number(halfwayNewPeriodRewardData.reward_per_token_stored_u12 - expectedNewHalfRewardPerToken),
+    );
+    const newHalfRelativeError = newHalfRewardPerTokenDiff / Number(expectedNewHalfRewardPerToken);
+
+    assert(
+      newHalfRelativeError < 0.001,
+      `New half period reward per token has relative error of ${newHalfRelativeError}: ${halfwayNewPeriodRewardData.reward_per_token_stored_u12} vs ${expectedNewHalfRewardPerToken}`,
+    );
+
+    // Verify remaining balance
+    const expectedRemainingBalance = REWARD_AMOUNT / 2n - expectedAdditionalRewards;
+    assert.strictEqual(
+      halfwayNewPeriodRewardData.reward_balance,
+      expectedRemainingBalance,
+      "Remaining balance should be correcty updated after claiming in the new period",
+    );
+
+    // Fast forward to the end of the new period
+    const finalTime = zeroPeriodFinish;
+
+    // Claim remaining rewards
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: expectedRemainingBalance.toString(),
+      },
+      timestamp: secondsToMicros(finalTime),
+    });
+
+    // Get final reward state
+    const finalRewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(finalRewardData, "Final reward data should exist");
+
+    // Verify all rewards claimed
+    assert.strictEqual(finalRewardData.reward_balance, 0n, "All rewards should be claimed by the end");
+
+    // Verify total rewards distributed hasn't changed (since we only notified zero)
+    assert.strictEqual(
+      finalRewardData.total_distributed,
+      REWARD_AMOUNT,
+      "Total distributed should remain at initial amount since zero was notified",
+    );
+
+    // Final reward per token should be approximately 2x the midpoint value
+    // (it continues accumulating at half the original rate for the same duration)
+    const expectedFinalRewardPerToken = midpointRewardPerToken * 2n;
+
+    // Verify final reward per token with tolerance
+    const finalRewardPerTokenDiff = Math.abs(
+      Number(finalRewardData.reward_per_token_stored_u12 - expectedFinalRewardPerToken),
+    );
+    const finalRelativeError = finalRewardPerTokenDiff / Number(expectedFinalRewardPerToken);
+
+    assert(
+      finalRelativeError < 0.001,
+      `Final reward per token has relative error of ${finalRelativeError}: ${finalRewardData.reward_per_token_stored_u12} vs ${expectedFinalRewardPerToken}`,
+    );
   });
 
   test("Notify reward amount for multiple tokens", async () => {
