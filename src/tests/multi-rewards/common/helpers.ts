@@ -2,6 +2,8 @@ import assert from "assert";
 
 import { getTimestampInSeconds, MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
 import { assertApproxEqualBigInt } from "../../common/assertions.js";
+import { TestProcessorServer } from "@sentio/sdk/testing";
+import { MRRewardClaimedEvent, MRUserRewardData } from "../../../schema/schema.rewards.js";
 
 // Helper to verify pool state
 export async function verifyPoolState(
@@ -128,4 +130,56 @@ export async function verifyStakeEvent(
   // since the processor runtime deals with only microseconds but the actual event handlers deal with seconds
   // we convert the microseconds to seconds to compare
   assert.strictEqual(event.timestamp, getTimestampInSeconds(expectedState.timestamp));
+}
+
+// Helper to verify user reward data
+export async function verifyUserRewardData(
+  service: TestProcessorServer,
+  userAddress: string,
+  poolAddress: string,
+  rewardToken: string,
+  expectedState: {
+    rewardPerTokenPaidU12: bigint;
+    unclaimedRewards: bigint;
+    totalClaimed: bigint;
+  },
+) {
+  const userRewardDataId = `${userAddress}-${poolAddress}-${rewardToken}`;
+  const userRewardData = await service.store.get(MRUserRewardData, userRewardDataId);
+  assert(userRewardData, `User reward data should exist for ${userRewardDataId}`);
+  assertApproxEqualBigInt(
+    userRewardData.reward_per_token_paid_u12,
+    expectedState.rewardPerTokenPaidU12,
+    1n,
+    "reward_per_token_paid_u12 should match",
+  );
+  assert.strictEqual(
+    userRewardData.unclaimed_rewards,
+    expectedState.unclaimedRewards,
+    "unclaimed_rewards should match",
+  );
+  assert.strictEqual(userRewardData.total_claimed, expectedState.totalClaimed, "total_claimed should match");
+  return userRewardData;
+}
+
+// Helper to verify claim events
+export async function verifyClaimEvents(
+  service: TestProcessorServer,
+  poolAddress: string,
+  userAddress: string,
+  rewardToken: string,
+  expectedCounts: number,
+) {
+  const claimEvents = await service.store.list(MRRewardClaimedEvent, [
+    { field: "reward_token", op: "=", value: rewardToken },
+  ]);
+  assert.strictEqual(claimEvents.length, expectedCounts, `Should have ${expectedCounts} claim events`);
+
+  // Optionally verify other claim event properties if needed
+  for (const event of claimEvents) {
+    assert.strictEqual(event.poolID.toString(), poolAddress, "Pool ID should match");
+    assert.strictEqual(event.userID.toString(), userAddress, "User ID should match");
+  }
+
+  return claimEvents;
 }
