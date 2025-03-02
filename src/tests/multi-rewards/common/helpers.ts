@@ -183,3 +183,27 @@ export async function verifyClaimEvents(
 
   return claimEvents;
 }
+
+// Proposed helper function to add to your helpers.js
+export async function verifySubscriptionEvent(
+  reader: MultiRewardsTestReader,
+  expectedState: {
+    user: string;
+    pool_address: string;
+    staking_token: string;
+    timestamp: bigint;
+    subscription_count: number;
+  },
+) {
+  const event = await reader.getSubscriptionEvent(
+    expectedState.user,
+    expectedState.pool_address,
+    expectedState.subscription_count,
+  );
+  assert(event, "Subscription event should exist");
+
+  assert.strictEqual(event.userID.toString(), expectedState.user);
+  assert.strictEqual(event.poolID.toString(), expectedState.pool_address);
+  assert.strictEqual(event.staking_token, expectedState.staking_token);
+  assert.strictEqual(event.timestamp, getTimestampInSeconds(expectedState.timestamp));
+}

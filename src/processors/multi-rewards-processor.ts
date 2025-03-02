@@ -428,8 +428,7 @@ export function multiRewardsProcessor(
     })
     .onEventSubscriptionEvent(async (event, ctx) => {
       const store = getStore(supportedChainId, ctx);
-      const timestampMicros = ctx.getTimestamp();
-      const timestamp = getTimestampInSeconds(timestampMicros);
+      const timestamp = getTimestampInSeconds(ctx.getTimestamp());
       const userAddress = event.data_decoded.user;
       const poolAddress = event.data_decoded.pool_address;
       const staking_token = event.data_decoded.staking_token;
@@ -452,15 +451,13 @@ export function multiRewardsProcessor(
       // Get or create user
       const user = await getOrCreateUser(userAddress, store, timestamp);
 
-      // Update rewards before modifying subscription state
-      await updateRewards(pool, userAddress, timestamp, store);
-
       // Check if the user has had a previous subscription to this pool
       const existingSubscription = await store.get(MRUserSubscription, `${userAddress}-${poolAddress}`);
       let subscription;
 
       if (!existingSubscription) {
-        // Create new subscription if one doesn't already exist
+        // Create new subscription if one doesn't already exist,
+        // but mark it as NOT subscribed yet (until after updateRewards)
         subscription = new MRUserSubscription({
           id: `${userAddress}-${poolAddress}`,
           poolID: pool.id,
@@ -469,28 +466,33 @@ export function multiRewardsProcessor(
           pool_address: poolAddress,
           staked_balanceID: userStakedBalance.id,
           user_reward_datasIDs: [],
-          is_currently_subscribed: true,
+          is_currently_subscribed: false, // Initially false
           subscribed_at: timestamp,
         });
+      } else {
+        // Use existing subscription but don't change subscription status yet
+        subscription = existingSubscription;
+      }
 
-        // Update pool stats for new subscription
+      // Save the subscription entity with is_currently_subscribed still false
+      await store.upsert(subscription);
+
+      // Call updateRewards when user is still NOT marked as subscribed
+      // This ensures earned_amount calculations will be 0
+      await updateRewards(pool, userAddress, timestamp, store);
+
+      // Now update the subscription status and pool stats AFTER updateRewards
+      subscription.is_currently_subscribed = true;
+
+      // Update pool stats too
+      if (!existingSubscription || (existingSubscription && !existingSubscription.is_currently_subscribed)) {
         pool.subscriber_count += 1;
         pool.total_subscribed += userStakedBalance.amount;
-      } else {
-        // Update existing subscription
-        subscription = existingSubscription;
-
-        // Only update stats if they weren't already subscribed
-        if (!subscription.is_currently_subscribed) {
-          pool.subscriber_count += 1;
-          pool.total_subscribed += userStakedBalance.amount;
-
-          // Update subscription state
-          subscription.is_currently_subscribed = true;
-          subscription.subscribed_at = timestamp; // Update subscription time
-        }
-        // If they were already subscribed, nothing changes
       }
+
+      // Save the updated entities
+      await store.upsert(subscription);
+      await store.upsert(pool);
 
       // Create subscription event
       const subscriptionEvent = new MRSubscriptionEvent({
@@ -502,9 +504,7 @@ export function multiRewardsProcessor(
         timestamp,
       });
 
-      // Persist all updates
-      await store.upsert(subscription);
-      await store.upsert(pool);
+      // Persist the subscription event
       await store.upsert(subscriptionEvent);
     })
     .onEventUnsubscriptionEvent(async (event, ctx) => {
@@ -719,7 +719,7 @@ async function updateRewards(pool: MRStakingPool, userAddress: string, timestamp
           id: userRewardDataId,
           subscriptionID: subscription.id,
           reward_token,
-          reward_per_token_paid_u12: 0n,
+          reward_per_token_paid_u12: newRewardPerToken,
           unclaimed_rewards: 0n,
           total_claimed: 0n,
         });
@@ -729,9 +729,17 @@ async function updateRewards(pool: MRStakingPool, userAddress: string, timestamp
       const userBalance = await getUserStakedBalance(userAddress, pool.staking_token, store);
       if (!userBalance) continue;
 
-      // Calculate earned rewards
-      const earnedAmount =
-        (userBalance.amount * (newRewardPerToken - userData.reward_per_token_paid_u12)) / U12_PRECISION;
+      // Calculate earned rewards - considering subscription status
+      let earnedAmount;
+      if (subscription.is_currently_subscribed) {
+        // If subscribed, use full balance for calculation
+        earnedAmount = (userBalance.amount * (newRewardPerToken - userData.reward_per_token_paid_u12)) / U12_PRECISION;
+      } else {
+        // If not subscribed, treat as having 0 balance (this path should not occur in our fixed implementation,
+        // but included for completeness and to match the Move implementation logic)
+        earnedAmount = 0n;
+      }
+
       userData.unclaimed_rewards += earnedAmount;
       userData.reward_per_token_paid_u12 = newRewardPerToken;
 
@@ -876,11 +884,29 @@ export class MultiRewardsTestReader {
     return getUserStakedBalance(userAddress, stakingToken, this.store);
   }
 
+  async getUserRewardData(
+    userAddress: string,
+    poolAddress: string,
+    rewardToken: string,
+  ): Promise<MRUserRewardData | undefined> {
+    const userRewardDataId = `${userAddress}-${poolAddress}-${rewardToken}`;
+    return this.store.get(MRUserRewardData, userRewardDataId);
+  }
+
   // Event getters
 
   async getStakeEvent(user: string, stakingToken: string, stakeCount: number): Promise<MRStakeEvent | undefined> {
     const stakeEventId = `${user}-${stakingToken}-${stakeCount}`;
     return this.store.get(MRStakeEvent, stakeEventId);
+  }
+
+  async getSubscriptionEvent(
+    user: string,
+    poolAddress: string,
+    subscriptionCount: number,
+  ): Promise<MRSubscriptionEvent | undefined> {
+    const subscriptionEventId = `${user}-${poolAddress}-${subscriptionCount}`;
+    return this.store.get(MRSubscriptionEvent, subscriptionEventId);
   }
 
   // Count getters
