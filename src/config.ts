@@ -2,7 +2,7 @@ import { vault as aptos_testnet_vault } from "./types/aptos/testnet/ichi-vaults-
 import { vault as aptos_mainnet_vault } from "./types/aptos/ichi-vaults.js";
 
 // import { multi_rewards as multi_rewards_movement } from "./types/aptos/movement-porto/multi-rewards-movement.js";
-import { multi_rewards as multi_rewards_testnet } from "./types/aptos/testnet/multi-rewards-testnet.js";
+import { multi_rewards as multi_rewards_testnet } from "./types/aptos/testnet/multi_rewards.js";
 
 import { liquidswapIchiVaultsProcessor } from "./processors/liquidswap-ichi-vault-processor.js";
 import { multiRewardsProcessor } from "./processors/multi-rewards-processor.js";

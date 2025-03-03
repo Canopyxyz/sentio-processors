@@ -17,10 +17,11 @@ import {
   MRWithdrawEvent,
   MRSubscriptionEvent,
   MRUnsubscriptionEvent,
+  MREmergencyWithdrawEvent,
 } from "../schema/schema.rewards.js";
 
 // import { multi_rewards as multi_rewards_movement } from "../types/aptos/movement-porto/multi-rewards-movement.js";
-import { multi_rewards as multi_rewards_testnet } from "../types/aptos/testnet/multi-rewards-testnet.js";
+import { multi_rewards as multi_rewards_testnet } from "../types/aptos/testnet/multi_rewards.js";
 
 import { SupportedAptosChainId } from "../chains.js";
 
@@ -481,14 +482,14 @@ export function multiRewardsProcessor(
       // This ensures earned_amount calculations will be 0
       await updateRewards(pool, userAddress, timestamp, store);
 
-      // Now update the subscription status and pool stats AFTER updateRewards
-      subscription.is_currently_subscribed = true;
-
       // Update pool stats too
       if (!existingSubscription || (existingSubscription && !existingSubscription.is_currently_subscribed)) {
         pool.subscriber_count += 1;
         pool.total_subscribed += userStakedBalance.amount;
       }
+
+      // Now update the subscription status and pool stats AFTER updateRewards
+      subscription.is_currently_subscribed = true;
 
       // Save the updated entities
       await store.upsert(subscription);
@@ -571,6 +572,70 @@ export function multiRewardsProcessor(
       await store.upsert(subscription);
       await store.upsert(pool);
       await store.upsert(unsubscriptionEvent);
+    })
+    .onEventEmergencyWithdrawEvent(async (event, ctx) => {
+      const store = getStore(supportedChainId, ctx);
+      const timestamp = getTimestampInSeconds(ctx.getTimestamp());
+      const userAddress = event.data_decoded.user;
+      const stakingToken = event.data_decoded.staking_token;
+      const withdrawAmount = BigInt(event.data_decoded.amount);
+
+      // Get module for stats tracking
+      const module = await getOrCreateModule(store);
+      await incrementModuleStats(module, store, timestamp, "emergency_withdraw_count");
+
+      // Get user's staked balance (ensure it exists)
+      const userStakedBalance = await getUserStakedBalance(userAddress, stakingToken, store);
+      if (!userStakedBalance) {
+        throw new Error("User staked balance not found");
+      }
+
+      // Update user's staked balance to 0
+      userStakedBalance.amount = 0n;
+      userStakedBalance.last_update_time = timestamp;
+      await store.upsert(userStakedBalance);
+
+      // Get all subscribed pools for this staking token
+      const userSubscriptions = await store.list(MRUserSubscription, [
+        { field: "user_address", op: "=", value: userAddress },
+      ]);
+
+      // Filter for subscriptions with matching staking token that are currently active
+      for (const subscription of userSubscriptions) {
+        // Validate subscription belongs to this user
+        if (subscription.userID.toString() !== userAddress) {
+          continue;
+        }
+
+        // Get the pool for this subscription
+        const pool = await getStakingPool(subscription.pool_address, store);
+        if (!pool) continue;
+
+        // Only update pools for matching staking token
+        if (pool.staking_token !== stakingToken) {
+          continue;
+        }
+
+        // If the user is subscribed to this pool, update the pool's total_subscribed
+        if (subscription.is_currently_subscribed) {
+          // Reduce pool's total_subscribed by the withdrawn amount
+          pool.total_subscribed -= withdrawAmount;
+          await store.upsert(pool);
+        }
+      }
+
+      // Create emergency withdraw event entity
+      const emergencyWithdrawEvent = new MREmergencyWithdrawEvent({
+        id: `${userAddress}-${stakingToken}-${module.emergency_withdraw_count}`,
+        userID: userAddress,
+        transaction_version: BigInt(ctx.version),
+        staking_token: stakingToken,
+        amount: withdrawAmount,
+        timestamp,
+      });
+
+      // Persist the event
+      await store.upsert(emergencyWithdrawEvent);
     });
 }
 
@@ -632,7 +697,8 @@ async function incrementModuleStats(
     | "user_count"
     | "update_duration_count"
     | "unsubscription_count"
-    | "withdrawal_count",
+    | "withdrawal_count"
+    | "emergency_withdraw_count",
 ) {
   switch (stat) {
     case "claim_count":
@@ -664,6 +730,9 @@ async function incrementModuleStats(
       break;
     case "withdrawal_count":
       module.withdrawal_count++;
+      break;
+    case "emergency_withdraw_count":
+      module.emergency_withdraw_count++;
       break;
   }
   module.last_update_time = last_update_time;
@@ -707,7 +776,7 @@ async function updateRewards(pool: MRStakingPool, userAddress: string, timestamp
     if (userAddress !== "0x0") {
       // Check if user is subscribed to this pool
       const subscription = await getUserSubscription(userAddress, pool.id.toString(), store);
-      if (!subscription || !subscription.is_currently_subscribed) continue;
+      if (!subscription) continue;
 
       // Get or create user reward data
       const userRewardDataId = `${userAddress}-${pool.id}-${reward_token}`;

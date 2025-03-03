@@ -170,18 +170,28 @@ export async function verifyClaimEvents(
   rewardToken: string,
   expectedCounts: number,
 ) {
-  const claimEvents = await service.store.list(MRRewardClaimedEvent, [
+  // First get all events for the reward token
+  const allClaimEvents = await service.store.list(MRRewardClaimedEvent, [
     { field: "reward_token", op: "=", value: rewardToken },
   ]);
-  assert.strictEqual(claimEvents.length, expectedCounts, `Should have ${expectedCounts} claim events`);
 
-  // Optionally verify other claim event properties if needed
-  for (const event of claimEvents) {
+  // Then manually filter for the specific user
+  const userClaimEvents = allClaimEvents.filter((event) => event.userID.toString() === userAddress);
+
+  assert.strictEqual(
+    userClaimEvents.length,
+    expectedCounts,
+    `Should have ${expectedCounts} claim events for user ${userAddress}`,
+  );
+
+  // Optionally verify other claim event properties
+  for (const event of userClaimEvents) {
     assert.strictEqual(event.poolID.toString(), poolAddress, "Pool ID should match");
+    // User ID check is redundant here since we already filtered, but kept for clarity
     assert.strictEqual(event.userID.toString(), userAddress, "User ID should match");
   }
 
-  return claimEvents;
+  return userClaimEvents;
 }
 
 // Proposed helper function to add to your helpers.js

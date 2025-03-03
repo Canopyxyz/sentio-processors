@@ -3,7 +3,7 @@ import assert from "assert";
 import { TestProcessorServer } from "@sentio/sdk/testing";
 
 import { MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
-import { multi_rewards_abi } from "../../../abis/multi-rewards-testnet.js";
+import { multi_rewards_abi } from "../../../abis/multi_rewards.js";
 import { TestProcessor } from "../../utils/processor.js";
 import { multiRewardsHandlerIds } from "../common/constants.js";
 import { generateRandomAddress } from "../../common/helpers.js";
