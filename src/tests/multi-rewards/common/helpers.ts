@@ -217,3 +217,27 @@ export async function verifySubscriptionEvent(
   assert.strictEqual(event.staking_token, expectedState.staking_token);
   assert.strictEqual(event.timestamp, getTimestampInSeconds(expectedState.timestamp));
 }
+
+// Helper to verify unsubscription event
+export async function verifyUnsubscriptionEvent(
+  reader: MultiRewardsTestReader,
+  expectedState: {
+    user: string;
+    pool_address: string;
+    staking_token: string;
+    timestamp: bigint;
+    unsubscription_count: number;
+  },
+) {
+  const event = await reader.getUnsubscriptionEvent(
+    expectedState.user,
+    expectedState.pool_address,
+    expectedState.unsubscription_count,
+  );
+  assert(event, "Unsubscription event should exist");
+
+  assert.strictEqual(event.userID.toString(), expectedState.user);
+  assert.strictEqual(event.poolID.toString(), expectedState.pool_address);
+  assert.strictEqual(event.staking_token, expectedState.staking_token);
+  assert.strictEqual(event.timestamp, getTimestampInSeconds(expectedState.timestamp));
+}

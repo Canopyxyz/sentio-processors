@@ -978,6 +978,15 @@ export class MultiRewardsTestReader {
     return this.store.get(MRSubscriptionEvent, subscriptionEventId);
   }
 
+  async getUnsubscriptionEvent(
+    user: string,
+    poolAddress: string,
+    unsubscriptionCount: number,
+  ): Promise<MRUnsubscriptionEvent | undefined> {
+    const unsubscriptionEventId = `${user}-${poolAddress}-${unsubscriptionCount}`;
+    return this.store.get(MRUnsubscriptionEvent, unsubscriptionEventId);
+  }
+
   // Count getters
 
   async getStakeCount(): Promise<number> {
