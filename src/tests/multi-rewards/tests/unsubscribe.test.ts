@@ -9,24 +9,19 @@ import { TestProcessor } from "../../utils/processor.js";
 import { multiRewardsHandlerIds } from "../common/constants.js";
 import { generateRandomAddress, secondsToMicros } from "../../common/helpers.js";
 import {
-  verifyStakeEvent,
-  verifyUserState,
   verifyPoolState,
-  verifyRewardState,
   verifyClaimEvents,
-  verifyUserRewardData,
   verifySubscriptionEvent,
   verifyUnsubscriptionEvent,
 } from "../common/helpers.js";
 
 import { assertApproxEqualBigInt } from "../../common/assertions.js";
-import { MRRewardClaimedEvent } from "../../../schema/schema.rewards.js";
+import { MRRewardClaimedEvent, MRUserRewardData } from "../../../schema/schema.rewards.js";
 
 describe("Unsubscribe", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
   const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
 
-  const INITIAL_BALANCE = 1_000_000n;
   const STAKE_AMOUNT = 100_000n;
   const REWARD_AMOUNT = 1_000_000n;
   const REWARD_DURATION = 100n; // 100 seconds for simplicity
@@ -1838,26 +1833,1189 @@ describe("Unsubscribe", async () => {
 
   // Test unsubscribing during active reward notification
   test("test_unsubscribe_during_active_reward_notification", async () => {
-    // TODO: Implement test
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const adminAddress = generateRandomAddress();
+    const user1Address = generateRandomAddress();
+    const user2Address = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const startTime = 1000; // Base timestamp for the test
+
+    // Setup pool with admin
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: adminAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Add reward token to the pool
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: adminAddress,
+        rewards_duration: REWARD_DURATION.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Set up users with staking tokens and subscribe them to the pool
+    for (const userAddress of [user1Address, user2Address]) {
+      // User stakes tokens
+      await processor.processEvent({
+        name: "StakeEvent",
+        data: {
+          user: userAddress,
+          staking_token: { inner: stakingToken },
+          amount: STAKE_AMOUNT.toString(),
+        },
+        timestamp: secondsToMicros(startTime),
+      });
+
+      // User subscribes to pool
+      await processor.processEvent({
+        name: "SubscriptionEvent",
+        data: {
+          user: userAddress,
+          pool_address: poolAddress,
+          staking_token: { inner: stakingToken },
+        },
+        timestamp: secondsToMicros(startTime),
+      });
+    }
+
+    // Verify initial state
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: STAKE_AMOUNT * 2n,
+      subscriberCount: 2,
+      rewardTokens: [rewardToken],
+    });
+
+    // Notify initial rewards
+    const expectedRewardRate = (REWARD_AMOUNT * U12_PRECISION) / REWARD_DURATION;
+    const periodFinish = startTime + Number(REWARD_DURATION);
+
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: expectedRewardRate.toString(),
+        period_finish: periodFinish.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Let half of the reward period pass
+    const halfwayTime = startTime + Number(REWARD_DURATION) / 2;
+
+    // Check accrued rewards before second notification
+    // Each user has 1/2 of total stake and earns for half the period, so each gets 1/4 of total
+    const user1EarnedBefore = REWARD_AMOUNT / 4n;
+    const user2EarnedBefore = REWARD_AMOUNT / 4n;
+
+    // Process claim event for user1
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: user1Address,
+        reward_token: { inner: rewardToken },
+        reward_amount: user1EarnedBefore.toString(),
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Process claim event for user2
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: user2Address,
+        reward_token: { inner: rewardToken },
+        reward_amount: user2EarnedBefore.toString(),
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Notify additional rewards
+    // On the new notify_reward_amount, leftover rewards from previous period (REWARD_AMOUNT/2)
+    // are combined with new rewards, so 1.5 * REWARD_AMOUNT will be distributed over new period
+    const newPeriodFinish = halfwayTime + Number(REWARD_DURATION);
+    const newRewardRate = ((REWARD_AMOUNT + REWARD_AMOUNT / 2n) * U12_PRECISION) / REWARD_DURATION;
+
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: newRewardRate.toString(),
+        period_finish: newPeriodFinish.toString(),
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Track unsubscription count
+    const module = await multiRewardsTestReader.getModule();
+    const unsubscriptionCount = (module?.unsubscription_count || 0) + 1;
+
+    // Unsubscribe user1 immediately after new reward notification
+    await processor.processEvent({
+      name: "UnsubscriptionEvent",
+      data: {
+        user: user1Address,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Verify state after user1 unsubscribes
+    const user1SubscriptionAfter = await multiRewardsTestReader.getUserSubscription(user1Address, poolAddress);
+    const user2SubscriptionAfter = await multiRewardsTestReader.getUserSubscription(user2Address, poolAddress);
+
+    assert(user1SubscriptionAfter && !user1SubscriptionAfter.is_currently_subscribed, "User1 should be unsubscribed");
+    assert(
+      user2SubscriptionAfter && user2SubscriptionAfter.is_currently_subscribed,
+      "User2 should still be subscribed",
+    );
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: STAKE_AMOUNT,
+      subscriberCount: 1,
+      rewardTokens: [rewardToken],
+      claimCount: 2,
+    });
+
+    // Verify user1's rewards were claimed correctly (just the first period's rewards)
+    const user1ClaimEvents = await verifyClaimEvents(service, poolAddress, user1Address, rewardToken, 1);
+    assert.strictEqual(
+      user1ClaimEvents[0].claim_amount,
+      user1EarnedBefore,
+      "User1 should claim rewards from first period only",
+    );
+
+    // Let the rest of the reward period pass
+    const newPeriodEndTime = halfwayTime + Number(REWARD_DURATION);
+
+    // For user2, they get all the second period rewards (100% of 1.5 * REWARD_AMOUNT)
+    const user2SecondPeriodRewards = (REWARD_AMOUNT * 3n) / 2n;
+
+    // Process claim event for user2
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: user2Address,
+        reward_token: { inner: rewardToken },
+        reward_amount: user2SecondPeriodRewards.toString(),
+      },
+      timestamp: secondsToMicros(newPeriodEndTime),
+    });
+
+    // Unsubscribe user2
+    await processor.processEvent({
+      name: "UnsubscriptionEvent",
+      data: {
+        user: user2Address,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(newPeriodEndTime),
+    });
+
+    // Verify final state
+    const user1SubscriptionFinal = await multiRewardsTestReader.getUserSubscription(user1Address, poolAddress);
+    const user2SubscriptionFinal = await multiRewardsTestReader.getUserSubscription(user2Address, poolAddress);
+
+    assert(
+      user1SubscriptionFinal && !user1SubscriptionFinal.is_currently_subscribed,
+      "User1 should remain unsubscribed",
+    );
+    assert(user2SubscriptionFinal && !user2SubscriptionFinal.is_currently_subscribed, "User2 should be unsubscribed");
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: 0n,
+      subscriberCount: 0,
+      rewardTokens: [rewardToken],
+      claimCount: 3, // 2 from halfway + 1 from end
+    });
+
+    // Verify user2's total rewards
+    const user2ClaimEvents = await verifyClaimEvents(service, poolAddress, user2Address, rewardToken, 2);
+
+    // User2's total claims should be from both periods (1/4 of initial REWARD_AMOUNT + 3/2 of REWARD_AMOUNT)
+    const user2TotalClaimed = user2EarnedBefore + user2SecondPeriodRewards;
+
+    // Sum up the claim amounts from events
+    const user2ActualClaimed = user2ClaimEvents.reduce((sum, event) => sum + event.claim_amount, 0n);
+
+    assert.strictEqual(user2ActualClaimed, user2TotalClaimed, "User2 should have claimed from both periods");
+
+    // Verify total rewards distributed
+    const totalDistributed = user1EarnedBefore + user2TotalClaimed;
+    const expectedTotalDistributed = REWARD_AMOUNT / 2n + (REWARD_AMOUNT * 3n) / 2n;
+
+    assertApproxEqualBigInt(
+      totalDistributed,
+      expectedTotalDistributed,
+      2n,
+      "Total distributed rewards should match expected amount",
+    );
+
+    // Verify unsubscription events
+    await verifyUnsubscriptionEvent(multiRewardsTestReader, {
+      user: user1Address,
+      pool_address: poolAddress,
+      staking_token: stakingToken,
+      timestamp: secondsToMicros(halfwayTime),
+      unsubscription_count: unsubscriptionCount,
+    });
+
+    await verifyUnsubscriptionEvent(multiRewardsTestReader, {
+      user: user2Address,
+      pool_address: poolAddress,
+      staking_token: stakingToken,
+      timestamp: secondsToMicros(newPeriodEndTime),
+      unsubscription_count: unsubscriptionCount + 1,
+    });
   });
 
   // Test unsubscribing with multiple reward tokens
   test("test_unsubscribe_with_multiple_reward_tokens", async () => {
-    // TODO: Implement test
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const adminAddress = generateRandomAddress();
+    const userAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken1 = generateRandomAddress();
+    const rewardToken2 = generateRandomAddress();
+    const rewardToken3 = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const startTime = 1000; // Base timestamp for the test
+
+    // Setup pool with admin
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: adminAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Add multiple reward tokens to the pool with different durations
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken1 },
+        rewards_distributor: adminAddress,
+        rewards_duration: REWARD_DURATION.toString(), // Standard duration
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken2 },
+        rewards_distributor: adminAddress,
+        rewards_duration: (REWARD_DURATION * 2n).toString(), // Double duration
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken3 },
+        rewards_distributor: adminAddress,
+        rewards_duration: (REWARD_DURATION / 2n).toString(), // Half duration
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // User stakes tokens
+    await processor.processEvent({
+      name: "StakeEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: STAKE_AMOUNT.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // User subscribes to pool
+    await processor.processEvent({
+      name: "SubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial state
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: STAKE_AMOUNT,
+      subscriberCount: 1,
+      rewardTokens: [rewardToken1, rewardToken2, rewardToken3],
+    });
+
+    // Calculate reward rates for each token
+    const rewardRate1 = (REWARD_AMOUNT * U12_PRECISION) / REWARD_DURATION;
+    const rewardRate2 = (REWARD_AMOUNT * U12_PRECISION) / (REWARD_DURATION * 2n);
+    const rewardRate3 = (REWARD_AMOUNT * U12_PRECISION) / (REWARD_DURATION / 2n);
+
+    // Calculate period finish timestamps
+    const periodFinish1 = startTime + Number(REWARD_DURATION);
+    const periodFinish2 = startTime + Number(REWARD_DURATION * 2n);
+    const periodFinish3 = startTime + Number(REWARD_DURATION / 2n);
+
+    // Notify rewards for all tokens
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken1 },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: rewardRate1.toString(),
+        period_finish: periodFinish1.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken2 },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: rewardRate2.toString(),
+        period_finish: periodFinish2.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken3 },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: rewardRate3.toString(),
+        period_finish: periodFinish3.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Let half of the shortest reward duration pass (REWARD_DURATION / 4)
+    const quarterDurationTime = startTime + Number(REWARD_DURATION) / 4;
+
+    // Track unsubscription count
+    const module = await multiRewardsTestReader.getModule();
+    const unsubscriptionCount = (module?.unsubscription_count || 0) + 1;
+
+    // Calculate expected rewards for each token at quarter duration
+    // - Token1 (standard duration): 1/4 of REWARD_AMOUNT
+    // - Token2 (double duration): 1/8 of REWARD_AMOUNT
+    // - Token3 (half duration): 1/2 of REWARD_AMOUNT
+    const expectedReward1 = REWARD_AMOUNT / 4n;
+    const expectedReward2 = REWARD_AMOUNT / 8n;
+    const expectedReward3 = REWARD_AMOUNT / 2n;
+
+    // Process claim events for all tokens
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken1 },
+        reward_amount: expectedReward1.toString(),
+      },
+      timestamp: secondsToMicros(quarterDurationTime),
+    });
+
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken2 },
+        reward_amount: expectedReward2.toString(),
+      },
+      timestamp: secondsToMicros(quarterDurationTime),
+    });
+
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken3 },
+        reward_amount: expectedReward3.toString(),
+      },
+      timestamp: secondsToMicros(quarterDurationTime),
+    });
+
+    // Unsubscribe user
+    await processor.processEvent({
+      name: "UnsubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(quarterDurationTime),
+    });
+
+    // Verify post-unsubscription state
+    const userSubscription = await multiRewardsTestReader.getUserSubscription(userAddress, poolAddress);
+    assert(userSubscription && !userSubscription.is_currently_subscribed, "User should be unsubscribed");
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: 0n,
+      subscriberCount: 0,
+      rewardTokens: [rewardToken1, rewardToken2, rewardToken3],
+      claimCount: 3, // One claim per reward token
+    });
+
+    // Verify reward claims for each token
+    const claims1 = await verifyClaimEvents(service, poolAddress, userAddress, rewardToken1, 1);
+    const claims2 = await verifyClaimEvents(service, poolAddress, userAddress, rewardToken2, 1);
+    const claims3 = await verifyClaimEvents(service, poolAddress, userAddress, rewardToken3, 1);
+
+    assert.strictEqual(claims1[0].claim_amount, expectedReward1, "Token1 reward claim amount should match");
+    assert.strictEqual(claims2[0].claim_amount, expectedReward2, "Token2 reward claim amount should match");
+    assert.strictEqual(claims3[0].claim_amount, expectedReward3, "Token3 reward claim amount should match");
+
+    // Verify remaining rewards in each pool
+    const rewardData1 = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken1);
+    const rewardData2 = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken2);
+    const rewardData3 = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken3);
+
+    assert(rewardData1, "Expected rewardData1");
+    assert(rewardData2, "Expected rewardData2");
+    assert(rewardData3, "Expected rewardData3");
+
+    // Remaining rewards should be:
+    // - Token1: 3/4 of REWARD_AMOUNT
+    // - Token2: 7/8 of REWARD_AMOUNT
+    // - Token3: 1/2 of REWARD_AMOUNT
+    assertApproxEqualBigInt(
+      rewardData1.reward_balance,
+      REWARD_AMOUNT - expectedReward1,
+      1n,
+      "Remaining rewards for token1 should match",
+    );
+    assertApproxEqualBigInt(
+      rewardData2.reward_balance,
+      REWARD_AMOUNT - expectedReward2,
+      1n,
+      "Remaining rewards for token2 should match",
+    );
+    assertApproxEqualBigInt(
+      rewardData3.reward_balance,
+      REWARD_AMOUNT - expectedReward3,
+      1n,
+      "Remaining rewards for token3 should match",
+    );
+
+    // Verify unsubscription event
+    await verifyUnsubscriptionEvent(multiRewardsTestReader, {
+      user: userAddress,
+      pool_address: poolAddress,
+      staking_token: stakingToken,
+      timestamp: secondsToMicros(quarterDurationTime),
+      unsubscription_count: unsubscriptionCount,
+    });
+
+    // Let the rest of the longest reward period pass
+    const endTime = startTime + Number(REWARD_DURATION * 2n);
+
+    // Verify user doesn't get any more rewards
+    // We do this by making sure the user reward data is deleted on unsubscribe
+    for (const rewardToken of [rewardToken1, rewardToken2, rewardToken3]) {
+      const userRewardDataId = `${userAddress}-${poolAddress}-${rewardToken}`;
+      const userRewardData = await service.store.get(MRUserRewardData, userRewardDataId);
+      assert.strictEqual(
+        userRewardData,
+        undefined,
+        `User reward data for ${rewardToken} should be deleted on unsubscribe`,
+      );
+    }
   });
 
   // Test unsubscribing after partial withdrawal
   test("test_unsubscribe_after_partial_withdraw", async () => {
-    // TODO: Implement test
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const adminAddress = generateRandomAddress();
+    const userAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const startTime = 1000; // Base timestamp for the test
+
+    // Setup pool with admin
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: adminAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Add reward token to the pool
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: adminAddress,
+        rewards_duration: REWARD_DURATION.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // User stakes tokens
+    await processor.processEvent({
+      name: "StakeEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: STAKE_AMOUNT.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // User subscribes to pool
+    await processor.processEvent({
+      name: "SubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial state
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: STAKE_AMOUNT,
+      subscriberCount: 1,
+      rewardTokens: [rewardToken],
+    });
+
+    // Verify user's staked balance
+    let userStakedBalance = await multiRewardsTestReader.getUserStakedBalance(userAddress, stakingToken);
+    assert.strictEqual(userStakedBalance?.amount, STAKE_AMOUNT, "Initial staked balance should match");
+
+    // Notify rewards
+    const expectedRewardRate = (REWARD_AMOUNT * U12_PRECISION) / REWARD_DURATION;
+    const periodFinish = startTime + Number(REWARD_DURATION);
+
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: expectedRewardRate.toString(),
+        period_finish: periodFinish.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Let half of the reward period pass
+    const halfwayTime = startTime + Number(REWARD_DURATION) / 2;
+
+    // Partially withdraw staked tokens (half of them)
+    const withdrawAmount = STAKE_AMOUNT / 2n;
+
+    await processor.processEvent({
+      name: "WithdrawEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: withdrawAmount.toString(),
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Verify state after partial withdrawal
+    userStakedBalance = await multiRewardsTestReader.getUserStakedBalance(userAddress, stakingToken);
+    assert.strictEqual(
+      userStakedBalance?.amount,
+      STAKE_AMOUNT - withdrawAmount,
+      "Staked balance after withdrawal should be reduced",
+    );
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: STAKE_AMOUNT - withdrawAmount,
+      subscriberCount: 1,
+      rewardTokens: [rewardToken],
+      withdrawalCount: 1,
+    });
+
+    // Let a quarter of the reward period pass
+    const threeQuartersTime = halfwayTime + Number(REWARD_DURATION) / 4;
+
+    // Calculate expected rewards before unsubscription
+    // First half: Full STAKE_AMOUNT for half the duration = REWARD_AMOUNT / 2
+    // Third quarter: Half STAKE_AMOUNT for quarter the duration = REWARD_AMOUNT / 4 / 2 = REWARD_AMOUNT / 8
+    // Total: REWARD_AMOUNT * (1/2 + 1/8) = REWARD_AMOUNT * 5/8 = REWARD_AMOUNT * 0.625
+    const expectedReward = (REWARD_AMOUNT * 5n) / 8n;
+
+    // Process claim event
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: expectedReward.toString(),
+      },
+      timestamp: secondsToMicros(threeQuartersTime),
+    });
+
+    // Track unsubscription count
+    const module = await multiRewardsTestReader.getModule();
+    const unsubscriptionCount = (module?.unsubscription_count || 0) + 1;
+
+    // Unsubscribe user
+    await processor.processEvent({
+      name: "UnsubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(threeQuartersTime),
+    });
+
+    // Verify post-unsubscription state
+    const userSubscription = await multiRewardsTestReader.getUserSubscription(userAddress, poolAddress);
+    assert(userSubscription && !userSubscription.is_currently_subscribed, "User should be unsubscribed");
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: 0n,
+      subscriberCount: 0,
+      rewardTokens: [rewardToken],
+      withdrawalCount: 1,
+      claimCount: 1,
+    });
+
+    // Verify user's staked balance remains unchanged after unsubscribe
+    userStakedBalance = await multiRewardsTestReader.getUserStakedBalance(userAddress, stakingToken);
+    assert.strictEqual(
+      userStakedBalance?.amount,
+      STAKE_AMOUNT - withdrawAmount,
+      "Staked balance should remain unchanged after unsubscription",
+    );
+
+    // Verify user's rewards
+    const claimEvents = await verifyClaimEvents(service, poolAddress, userAddress, rewardToken, 1);
+    assert.strictEqual(claimEvents[0].claim_amount, expectedReward, "Claim amount should match expected rewards");
+
+    // Verify remaining rewards in the pool
+    const rewardData = await multiRewardsTestReader.getPoolRewardData(poolAddress, rewardToken);
+    assert(rewardData, "Expected rewardData");
+    const expectedRemainingRewards = REWARD_AMOUNT - expectedReward;
+    assertApproxEqualBigInt(rewardData.reward_balance, expectedRemainingRewards, 1n, "Remaining rewards should match");
+
+    // Verify unsubscription event
+    await verifyUnsubscriptionEvent(multiRewardsTestReader, {
+      user: userAddress,
+      pool_address: poolAddress,
+      staking_token: stakingToken,
+      timestamp: secondsToMicros(threeQuartersTime),
+      unsubscription_count: unsubscriptionCount,
+    });
+
+    // Let the rest of the reward period pass
+    const endTime = startTime + Number(REWARD_DURATION);
+
+    // Verify user doesn't receive any more rewards
+    const userRewardDataId = `${userAddress}-${poolAddress}-${rewardToken}`;
+    const userRewardData = await service.store.get(MRUserRewardData, userRewardDataId);
+    assert.strictEqual(userRewardData, undefined, "User reward data should be deleted after unsubscription");
+
+    // Withdraw remaining staked tokens
+    const remainingStake = STAKE_AMOUNT - withdrawAmount;
+
+    await processor.processEvent({
+      name: "WithdrawEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: remainingStake.toString(),
+      },
+      timestamp: secondsToMicros(endTime),
+    });
+
+    // Verify final staked balance is zero
+    userStakedBalance = await multiRewardsTestReader.getUserStakedBalance(userAddress, stakingToken);
+    assert.strictEqual(userStakedBalance?.amount, 0n, "Final staked balance should be zero");
   });
 
   // Test unsubscribing after emergency withdrawal (scenario 1)
   test("test_unsubscribe_after_emergency_withdraw_scenario1", async () => {
-    // TODO: Implement test
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const adminAddress = generateRandomAddress();
+    const userAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const startTime = 1000; // Base timestamp for the test
+
+    // Setup pool with admin
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: adminAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Add reward token to the pool
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: adminAddress,
+        rewards_duration: REWARD_DURATION.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // User stakes tokens
+    await processor.processEvent({
+      name: "StakeEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: STAKE_AMOUNT.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // User subscribes to pool
+    await processor.processEvent({
+      name: "SubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial state
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: STAKE_AMOUNT,
+      subscriberCount: 1,
+      rewardTokens: [rewardToken],
+    });
+
+    // Notify rewards
+    const expectedRewardRate = (REWARD_AMOUNT * U12_PRECISION) / REWARD_DURATION;
+    const periodFinish = startTime + Number(REWARD_DURATION);
+
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: expectedRewardRate.toString(),
+        period_finish: periodFinish.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Let some time pass to accrue rewards
+    const halfwayTime = startTime + Number(REWARD_DURATION) / 2;
+
+    // Calculate expected rewards before emergency withdraw
+    const earnedBefore = REWARD_AMOUNT / 2n; // Half of the reward amount for half the duration
+
+    // Track emergency withdraw count
+    let module = await multiRewardsTestReader.getModule();
+    const emergencyWithdrawCount = (module?.emergency_withdraw_count || 0) + 1;
+
+    // Perform emergency withdrawal
+    await processor.processEvent({
+      name: "EmergencyWithdrawEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: STAKE_AMOUNT.toString(),
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Verify state after emergency withdraw
+    const userSubscription = await multiRewardsTestReader.getUserSubscription(userAddress, poolAddress);
+    assert(
+      userSubscription && userSubscription.is_currently_subscribed,
+      "User should still be subscribed after emergency withdraw",
+    );
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: 0n, // Total subscribed should be 0 after emergency withdraw
+      subscriberCount: 1, // But subscriber count still 1
+      rewardTokens: [rewardToken],
+    });
+
+    // Verify user's staked balance is 0
+    let userStakedBalance = await multiRewardsTestReader.getUserStakedBalance(userAddress, stakingToken);
+    assert.strictEqual(userStakedBalance?.amount, 0n, "User's staked balance should be 0 after emergency withdraw");
+
+    // Check that rewards are still accrued but not claimed
+    // In scenario 1, user loses their pending rewards
+    const userRewardDataId = `${userAddress}-${poolAddress}-${rewardToken}`;
+    let userRewardData = await service.store.get(MRUserRewardData, userRewardDataId);
+
+    // The user reward data might still exist, but unclaimed_rewards should be reset to 0
+    if (userRewardData) {
+      assert.strictEqual(
+        userRewardData.unclaimed_rewards,
+        0n,
+        "User's unclaimed rewards should be 0 after emergency withdraw",
+      );
+    }
+
+    // Verify no rewards were claimed
+    const claimEventsBefore = await service.store.list(MRRewardClaimedEvent, [
+      { field: "userID", op: "=", value: userAddress },
+    ]);
+    assert.strictEqual(claimEventsBefore.length, 0, "No rewards should be claimed yet");
+
+    // Track unsubscription count
+    module = await multiRewardsTestReader.getModule();
+    const unsubscriptionCount = (module?.unsubscription_count || 0) + 1;
+
+    // Unsubscribe after emergency withdraw
+    await processor.processEvent({
+      name: "UnsubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Verify final state
+    const userSubscriptionAfter = await multiRewardsTestReader.getUserSubscription(userAddress, poolAddress);
+    assert(
+      userSubscriptionAfter && !userSubscriptionAfter.is_currently_subscribed,
+      "User should be unsubscribed after unsubscription event",
+    );
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: 0n,
+      subscriberCount: 0, // Now subscriber count is 0
+      rewardTokens: [rewardToken],
+    });
+
+    // Check that no rewards were claimed during unsubscribe
+    const claimEventsAfter = await service.store.list(MRRewardClaimedEvent, [
+      { field: "userID", op: "=", value: userAddress },
+    ]);
+    assert.strictEqual(claimEventsAfter.length, 0, "No rewards should be claimed during unsubscription");
+
+    // Verify user's staked balance remains 0
+    userStakedBalance = await multiRewardsTestReader.getUserStakedBalance(userAddress, stakingToken);
+    assert.strictEqual(userStakedBalance?.amount, 0n, "User's staked balance should remain 0");
+
+    // Verify user reward data is removed
+    userRewardData = await service.store.get(MRUserRewardData, userRewardDataId);
+    assert.strictEqual(userRewardData, undefined, "User reward data should be deleted after unsubscription");
+
+    // Verify events
+    // Verify emergency withdraw event
+    // Note: No direct event verification helper for EmergencyWithdrawEvent exists,
+    // so we rely on indirect verification through state changes
+
+    // Verify unsubscription event
+    await verifyUnsubscriptionEvent(multiRewardsTestReader, {
+      user: userAddress,
+      pool_address: poolAddress,
+      staking_token: stakingToken,
+      timestamp: secondsToMicros(halfwayTime),
+      unsubscription_count: unsubscriptionCount,
+    });
   });
 
   // Test unsubscribing after emergency withdrawal (scenario 2)
   test("test_unsubscribe_after_emergency_withdraw_scenario2", async () => {
-    // TODO: Implement test
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
+
+    // Generate test addresses
+    const adminAddress = generateRandomAddress();
+    const userAddress = generateRandomAddress();
+    const stakingToken = generateRandomAddress();
+    const rewardToken = generateRandomAddress();
+    const poolAddress = generateRandomAddress();
+
+    const startTime = 1000; // Base timestamp for the test
+
+    // Setup pool with admin
+    await processor.processEvent({
+      name: "StakingPoolCreatedEvent",
+      data: {
+        creator: adminAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Add reward token to the pool
+    await processor.processEvent({
+      name: "RewardAddedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        rewards_distributor: adminAddress,
+        rewards_duration: REWARD_DURATION.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // User stakes tokens
+    await processor.processEvent({
+      name: "StakeEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: STAKE_AMOUNT.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // User subscribes to pool
+    await processor.processEvent({
+      name: "SubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Verify initial state
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: STAKE_AMOUNT,
+      subscriberCount: 1,
+      rewardTokens: [rewardToken],
+    });
+
+    // Notify rewards
+    const expectedRewardRate = (REWARD_AMOUNT * U12_PRECISION) / REWARD_DURATION;
+    const periodFinish = startTime + Number(REWARD_DURATION);
+
+    await processor.processEvent({
+      name: "RewardNotifiedEvent",
+      data: {
+        pool_address: poolAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: REWARD_AMOUNT.toString(),
+        reward_rate: expectedRewardRate.toString(),
+        period_finish: periodFinish.toString(),
+      },
+      timestamp: secondsToMicros(startTime),
+    });
+
+    // Let some time pass to accrue rewards
+    const halfwayTime = startTime + Number(REWARD_DURATION) / 2;
+
+    // Calculate expected rewards
+    const earnedBefore = REWARD_AMOUNT / 2n; // Half of the reward amount for half the duration
+
+    // Withdraw just 1 unit to trigger accumulation of "pending" rewards
+    await processor.processEvent({
+      name: "WithdrawEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: "1",
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Verify user's staked balance after small withdrawal
+    let userStakedBalance = await multiRewardsTestReader.getUserStakedBalance(userAddress, stakingToken);
+    assert.strictEqual(userStakedBalance?.amount, STAKE_AMOUNT - 1n, "User's staked balance should be reduced by 1");
+
+    // Track emergency withdraw count
+    let module = await multiRewardsTestReader.getModule();
+    const emergencyWithdrawCount = (module?.emergency_withdraw_count || 0) + 1;
+
+    // Perform emergency withdrawal
+    await processor.processEvent({
+      name: "EmergencyWithdrawEvent",
+      data: {
+        user: userAddress,
+        staking_token: { inner: stakingToken },
+        amount: (STAKE_AMOUNT - 1n).toString(),
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Verify state after emergency withdraw
+    const userSubscription = await multiRewardsTestReader.getUserSubscription(userAddress, poolAddress);
+    assert(
+      userSubscription && userSubscription.is_currently_subscribed,
+      "User should still be subscribed after emergency withdraw",
+    );
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: 0n, // Total subscribed should be 0 after emergency withdraw
+      subscriberCount: 1, // But subscriber count still 1
+      rewardTokens: [rewardToken],
+      withdrawalCount: 1, // One regular withdrawal
+    });
+
+    // Verify user's staked balance is 0
+    userStakedBalance = await multiRewardsTestReader.getUserStakedBalance(userAddress, stakingToken);
+    assert.strictEqual(userStakedBalance?.amount, 0n, "User's staked balance should be 0 after emergency withdraw");
+
+    // Check that rewards are still accrued but not claimed
+    // In scenario 2, user preserves their pending rewards
+    const userRewardDataId = `${userAddress}-${poolAddress}-${rewardToken}`;
+    let userRewardData = await service.store.get(MRUserRewardData, userRewardDataId);
+
+    // The user reward data should exist with pending rewards
+    assert(userRewardData, "User reward data should exist after emergency withdraw");
+    assertApproxEqualBigInt(
+      userRewardData.unclaimed_rewards,
+      earnedBefore,
+      1n,
+      "User should have unclaimed rewards after emergency withdraw in scenario 2",
+    );
+
+    // Track unsubscription count
+    module = await multiRewardsTestReader.getModule();
+    const unsubscriptionCount = (module?.unsubscription_count || 0) + 1;
+
+    // Process claim event
+    await processor.processEvent({
+      name: "RewardClaimedEvent",
+      data: {
+        pool_address: poolAddress,
+        user: userAddress,
+        reward_token: { inner: rewardToken },
+        reward_amount: earnedBefore.toString(),
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Unsubscribe after emergency withdraw
+    await processor.processEvent({
+      name: "UnsubscriptionEvent",
+      data: {
+        user: userAddress,
+        pool_address: poolAddress,
+        staking_token: { inner: stakingToken },
+      },
+      timestamp: secondsToMicros(halfwayTime),
+    });
+
+    // Verify final state
+    const userSubscriptionAfter = await multiRewardsTestReader.getUserSubscription(userAddress, poolAddress);
+    assert(
+      userSubscriptionAfter && !userSubscriptionAfter.is_currently_subscribed,
+      "User should be unsubscribed after unsubscription event",
+    );
+
+    await verifyPoolState(multiRewardsTestReader, poolAddress, {
+      stakingToken,
+      creator: adminAddress,
+      totalSubscribed: 0n,
+      subscriberCount: 0, // Now subscriber count is 0
+      rewardTokens: [rewardToken],
+      withdrawalCount: 1,
+      claimCount: 1, // One claim event
+    });
+
+    // Verify rewards were claimed
+    const claimEvents = await verifyClaimEvents(service, poolAddress, userAddress, rewardToken, 1);
+    assert.strictEqual(claimEvents[0].claim_amount, earnedBefore, "Claim amount should match expected rewards");
+
+    // Verify user's staked balance remains 0
+    userStakedBalance = await multiRewardsTestReader.getUserStakedBalance(userAddress, stakingToken);
+    assert.strictEqual(userStakedBalance?.amount, 0n, "User's staked balance should remain 0");
+
+    // Verify user reward data is removed
+    userRewardData = await service.store.get(MRUserRewardData, userRewardDataId);
+    assert.strictEqual(userRewardData, undefined, "User reward data should be deleted after unsubscription");
+
+    // Verify unsubscription event
+    await verifyUnsubscriptionEvent(multiRewardsTestReader, {
+      user: userAddress,
+      pool_address: poolAddress,
+      staking_token: stakingToken,
+      timestamp: secondsToMicros(halfwayTime),
+      unsubscription_count: unsubscriptionCount,
+    });
   });
 });

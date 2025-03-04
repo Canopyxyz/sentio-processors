@@ -6,3 +6,8 @@ project: canopy-sentio-indexer
 # project: solo-labs/canopy-aptos-mainnet
 # project: solo-labs/canopy-aptos-testnet
 # project: solo-labs/canopy-movement-porto-testnet
+
+contracts:
+  - chain: aptos_testnet
+    address: "0x53bd2e505058fd084d426ecb1760e02cdc40aa9171f9b4770a0215b5a44b5d4a"
+    name: multi_rewards

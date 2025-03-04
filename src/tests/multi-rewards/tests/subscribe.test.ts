@@ -23,7 +23,6 @@ describe("Subscribe", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
   const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
 
-  const INITIAL_BALANCE = 1_000_000n;
   const STAKE_AMOUNT = 100_000n;
   const UNSTAKE_AMOUNT = 50_000n;
   const RESTAKE_AMOUNT = 75_000n;

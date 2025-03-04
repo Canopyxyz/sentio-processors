@@ -1,4 +1,3 @@
-/* eslint-disable */
 import assert from "assert";
 import { before, afterEach, describe, test } from "node:test";
 import { TestProcessorServer } from "@sentio/sdk/testing";
@@ -9,26 +8,18 @@ import { TestProcessor } from "../../utils/processor.js";
 import { multiRewardsHandlerIds } from "../common/constants.js";
 import { generateRandomAddress, secondsToMicros } from "../../common/helpers.js";
 import {
-  verifyStakeEvent,
   verifyUserState,
   verifyPoolState,
   verifyRewardState,
   verifyClaimEvents,
   verifyUserRewardData,
 } from "../common/helpers.js";
-import {
-  MRRewardClaimedEvent,
-  MRRewardNotifiedEvent,
-  MRSubscriptionEvent,
-  MRUnsubscriptionEvent,
-  MRUserRewardData,
-} from "../../../schema/schema.rewards.js";
+import { MRRewardClaimedEvent, MRUserRewardData } from "../../../schema/schema.rewards.js";
 
 describe("Claim Reward", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
   const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
 
-  const INITIAL_BALANCE = 1_000_000n;
   const STAKE_AMOUNT = 100_000n;
   const REWARD_AMOUNT = 500_000n;
   const REWARD_DURATION = 86400n; // 1 day in seconds

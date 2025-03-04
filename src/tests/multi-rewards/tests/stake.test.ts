@@ -1,5 +1,3 @@
-/* eslint-disable */
-// TODO: remove the above disable
 import assert from "assert";
 import { before, afterEach, describe, test } from "node:test";
 import { TestProcessorServer } from "@sentio/sdk/testing";
@@ -232,7 +230,7 @@ describe("Stake", async () => {
     });
 
     // Verify the stake was successful
-    let stakeCount = await multiRewardsTestReader.getStakeCount();
+    const stakeCount = await multiRewardsTestReader.getStakeCount();
     await verifyStakeEvent(multiRewardsTestReader, {
       user: userAddress,
       staking_token: stakingToken,
