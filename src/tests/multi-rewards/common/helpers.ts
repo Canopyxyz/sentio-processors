@@ -76,6 +76,8 @@ export async function verifyRewardState(
     1n,
     "Reward per token stored not approximately equal",
   );
+
+  return rewardData;
 }
 
 export async function verifyUserState(
