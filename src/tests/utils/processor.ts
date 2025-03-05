@@ -79,12 +79,13 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
     return {
       data: {
         aptEvent: {
-          rawTransaction: "",
-          transaction: {
+          rawEvent: JSON.stringify(event),
+          eventIndex: 0,
+          rawTransaction: JSON.stringify({
             version: event.version,
-            events: [event],
             timestamp: this.latestTimestampMicros,
-          },
+            events: [event],
+          }),
         },
       },
       handlerIds: [handlerId], // Now we use the mapped handler ID

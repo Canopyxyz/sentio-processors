@@ -1,9 +1,9 @@
-import { before, beforeEach, describe, test } from "node:test";
+import { afterEach, before, describe, test } from "node:test";
 import assert from "assert";
 import { TestProcessorServer } from "@sentio/sdk/testing";
 
-import { MultiRewardsTestReader, resetTestDb } from "../../../processors/multi-rewards-processor.js";
-import { multi_rewards_abi } from "../../../abis/multi-rewards-testnet.js";
+import { MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
+import { multi_rewards_abi } from "../../../abis/multi_rewards.js";
 import { TestProcessor } from "../../utils/processor.js";
 import { multiRewardsHandlerIds } from "../common/constants.js";
 import { generateRandomAddress } from "../../common/helpers.js";
@@ -12,17 +12,17 @@ import { verifyRewardState } from "../common/helpers.js";
 describe("Add Reward", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
   const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
-  const multiRewardsTestReader = new MultiRewardsTestReader();
 
   before(async () => {
     await service.start();
   });
 
-  beforeEach(async () => {
-    resetTestDb();
+  afterEach(async () => {
+    service.db.reset();
   });
 
   test("Basic Add Reward", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
     // Generate test data
     const poolAddress = generateRandomAddress();
     const stakingToken = generateRandomAddress();
@@ -70,6 +70,7 @@ describe("Add Reward", async () => {
   });
 
   test("Add Multiple Rewards", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
     // Generate test data
     const poolAddress = generateRandomAddress();
     const stakingToken = generateRandomAddress();
@@ -171,6 +172,7 @@ describe("Add Reward", async () => {
   });
 
   test("Add Reward With Max Duration", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
     // Generate test data
     const poolAddress = generateRandomAddress();
     const stakingToken = generateRandomAddress();
@@ -220,6 +222,7 @@ describe("Add Reward", async () => {
   });
 
   test("Add Reward To Multiple Pools", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
     // Generate test data
     const pool1Address = generateRandomAddress();
     const pool2Address = generateRandomAddress();
@@ -304,6 +307,7 @@ describe("Add Reward", async () => {
   });
 
   test("Add Reward With Different Distributor", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
     // Generate test data
     const poolAddress = generateRandomAddress();
     const stakingToken = generateRandomAddress();

@@ -2,6 +2,7 @@ export enum SupportedAptosChainId {
   JESTNET = 0, // used for jest testing
   APTOS_MAINNET = 1,
   APTOS_TESTNET = 2,
+  MOVEMENT_MAINNET = 126,
   APTOS_DEVNET = 148,
   MOVEMENT_PORTO = 177,
 }

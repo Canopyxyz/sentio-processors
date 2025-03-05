@@ -1,7 +1,13 @@
+import { GLOBAL_CONFIG } from "@sentio/runtime";
+
 import { getSupportedAptosChainId, SupportedAptosChainId } from "./chains.js";
 import { setupMultiRewardsProcessor } from "./config.js"; // setupICHIVaultsProcessor
 
 const { CHAIN_ID } = process.env;
+
+GLOBAL_CONFIG.execution = {
+  sequential: true,
+};
 
 if (!CHAIN_ID) {
   throw new Error("please specify CHAIN_ID in .env");
@@ -30,6 +36,11 @@ switch (supportedChainId) {
   }
   case SupportedAptosChainId.MOVEMENT_PORTO: {
     // Movement porto has modules to be indexed by the following processors
+    setupMultiRewardsProcessor(supportedChainId);
+    break;
+  }
+  case SupportedAptosChainId.MOVEMENT_MAINNET: {
+    // Movement mainnet has modules to be indexed by the following processors
     setupMultiRewardsProcessor(supportedChainId);
     break;
   }

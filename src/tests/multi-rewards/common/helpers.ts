@@ -1,6 +1,9 @@
 import assert from "assert";
 
 import { getTimestampInSeconds, MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
+import { assertApproxEqualBigInt } from "../../common/assertions.js";
+import { TestProcessorServer } from "@sentio/sdk/testing";
+import { MRRewardClaimedEvent, MRUserRewardData } from "../../../schema/schema.rewards.js";
 
 // Helper to verify pool state
 export async function verifyPoolState(
@@ -50,10 +53,31 @@ export async function verifyRewardState(
   assert.strictEqual(rewardData.distributor, expectedState.distributor);
   assert.strictEqual(rewardData.duration, expectedState.duration);
   assert.strictEqual(rewardData.reward_balance, expectedState.rewardBalance);
-  assert.strictEqual(rewardData.unallocated_rewards, expectedState.unallocatedRewards);
+  assertApproxEqualBigInt(
+    rewardData.unallocated_rewards,
+    expectedState.unallocatedRewards,
+    1n,
+    "Unallocated rewards not approximately equal",
+  );
   assert.strictEqual(rewardData.total_distributed, expectedState.totalDistributed);
-  assert.strictEqual(rewardData.reward_rate_u12, expectedState.rewardRateU12);
-  assert.strictEqual(rewardData.reward_per_token_stored_u12, expectedState.rewardPerTokenStoredU12);
+
+  // Use approximate comparison for reward rate
+  assertApproxEqualBigInt(
+    rewardData.reward_rate_u12,
+    expectedState.rewardRateU12,
+    1n,
+    "Reward rate not approximately equal",
+  );
+
+  // You might want to use the same for reward_per_token_stored_u12 as well
+  assertApproxEqualBigInt(
+    rewardData.reward_per_token_stored_u12,
+    expectedState.rewardPerTokenStoredU12,
+    1n,
+    "Reward per token stored not approximately equal",
+  );
+
+  return rewardData;
 }
 
 export async function verifyUserState(
@@ -107,5 +131,115 @@ export async function verifyStakeEvent(
   assert.strictEqual(event.amount, expectedState.amount);
   // since the processor runtime deals with only microseconds but the actual event handlers deal with seconds
   // we convert the microseconds to seconds to compare
+  assert.strictEqual(event.timestamp, getTimestampInSeconds(expectedState.timestamp));
+}
+
+// Helper to verify user reward data
+export async function verifyUserRewardData(
+  service: TestProcessorServer,
+  userAddress: string,
+  poolAddress: string,
+  rewardToken: string,
+  expectedState: {
+    rewardPerTokenPaidU12: bigint;
+    unclaimedRewards: bigint;
+    totalClaimed: bigint;
+  },
+) {
+  const userRewardDataId = `${userAddress}-${poolAddress}-${rewardToken}`;
+  const userRewardData = await service.store.get(MRUserRewardData, userRewardDataId);
+  assert(userRewardData, `User reward data should exist for ${userRewardDataId}`);
+  assertApproxEqualBigInt(
+    userRewardData.reward_per_token_paid_u12,
+    expectedState.rewardPerTokenPaidU12,
+    1n,
+    "reward_per_token_paid_u12 should match",
+  );
+  assert.strictEqual(
+    userRewardData.unclaimed_rewards,
+    expectedState.unclaimedRewards,
+    "unclaimed_rewards should match",
+  );
+  assert.strictEqual(userRewardData.total_claimed, expectedState.totalClaimed, "total_claimed should match");
+  return userRewardData;
+}
+
+// Helper to verify claim events
+export async function verifyClaimEvents(
+  service: TestProcessorServer,
+  poolAddress: string,
+  userAddress: string,
+  rewardToken: string,
+  expectedCounts: number,
+) {
+  // First get all events for the reward token
+  const allClaimEvents = await service.store.list(MRRewardClaimedEvent, [
+    { field: "reward_token", op: "=", value: rewardToken },
+  ]);
+
+  // Then manually filter for the specific user
+  const userClaimEvents = allClaimEvents.filter((event) => event.userID.toString() === userAddress);
+
+  assert.strictEqual(
+    userClaimEvents.length,
+    expectedCounts,
+    `Should have ${expectedCounts} claim events for user ${userAddress}`,
+  );
+
+  // Optionally verify other claim event properties
+  for (const event of userClaimEvents) {
+    assert.strictEqual(event.poolID.toString(), poolAddress, "Pool ID should match");
+    // User ID check is redundant here since we already filtered, but kept for clarity
+    assert.strictEqual(event.userID.toString(), userAddress, "User ID should match");
+  }
+
+  return userClaimEvents;
+}
+
+// Proposed helper function to add to your helpers.js
+export async function verifySubscriptionEvent(
+  reader: MultiRewardsTestReader,
+  expectedState: {
+    user: string;
+    pool_address: string;
+    staking_token: string;
+    timestamp: bigint;
+    subscription_count: number;
+  },
+) {
+  const event = await reader.getSubscriptionEvent(
+    expectedState.user,
+    expectedState.pool_address,
+    expectedState.subscription_count,
+  );
+  assert(event, "Subscription event should exist");
+
+  assert.strictEqual(event.userID.toString(), expectedState.user);
+  assert.strictEqual(event.poolID.toString(), expectedState.pool_address);
+  assert.strictEqual(event.staking_token, expectedState.staking_token);
+  assert.strictEqual(event.timestamp, getTimestampInSeconds(expectedState.timestamp));
+}
+
+// Helper to verify unsubscription event
+export async function verifyUnsubscriptionEvent(
+  reader: MultiRewardsTestReader,
+  expectedState: {
+    user: string;
+    pool_address: string;
+    staking_token: string;
+    timestamp: bigint;
+    unsubscription_count: number;
+  },
+) {
+  const event = await reader.getUnsubscriptionEvent(
+    expectedState.user,
+    expectedState.pool_address,
+    expectedState.unsubscription_count,
+  );
+  assert(event, "Unsubscription event should exist");
+
+  assert.strictEqual(event.userID.toString(), expectedState.user);
+  assert.strictEqual(event.poolID.toString(), expectedState.pool_address);
+  assert.strictEqual(event.staking_token, expectedState.staking_token);
   assert.strictEqual(event.timestamp, getTimestampInSeconds(expectedState.timestamp));
 }

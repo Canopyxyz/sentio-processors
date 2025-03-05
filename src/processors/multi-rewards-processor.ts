@@ -1,5 +1,6 @@
 import { AptosContext } from "@sentio/sdk/aptos";
 import { Store } from "@sentio/sdk/store";
+
 import {
   MRModule,
   MRStakingPool,
@@ -14,16 +15,15 @@ import {
   MRRewardsDurationUpdatedEvent,
   MRStakeEvent,
   MRWithdrawEvent,
-  SubscriptionEvent,
+  MRSubscriptionEvent,
   MRUnsubscriptionEvent,
+  MREmergencyWithdrawEvent,
 } from "../schema/schema.rewards.js";
 
-import { multi_rewards as multi_rewards_movement } from "../types/aptos/movement-porto/multi-rewards-movement.js";
-import { multi_rewards as multi_rewards_testnet } from "../types/aptos/testnet/multi-rewards-testnet.js";
+import { multi_rewards as multi_rewards_movement } from "../types/aptos/movement-mainnet/multi_rewards.js";
+import { multi_rewards as multi_rewards_testnet } from "../types/aptos/testnet/multi_rewards.js";
 
 import { SupportedAptosChainId } from "../chains.js";
-
-import { createStore, resetDb } from "../tests/utils/store.js";
 
 // Constants
 const U12_PRECISION = 10n ** 12n;
@@ -48,12 +48,12 @@ export function multiRewardsProcessor(
 
       const pool = new MRStakingPool({
         id: event.data_decoded.pool_address.toLowerCase(),
-        module: Promise.resolve(module),
+        moduleID: module.id,
         creation_tx_version: BigInt(ctx.version),
         creator: event.data_decoded.creator,
-        staking_token: event.data_decoded.staking_token.inner,
+        staking_token: event.data_decoded.staking_token,
         reward_tokens: [],
-        reward_datas: Promise.resolve([]),
+        reward_datasIDs: [],
         withdrawal_count: 0,
         claim_count: 0,
         subscriber_count: 0,
@@ -75,16 +75,16 @@ export function multiRewardsProcessor(
       if (!pool) throw new Error("Pool not found");
 
       // Verify reward token not already added
-      if (pool.reward_tokens.includes(event.data_decoded.reward_token.inner)) {
+      if (pool.reward_tokens.includes(event.data_decoded.reward_token)) {
         throw new Error("Reward token already exists");
       }
 
       // Create reward data
       const rewardData = new MRPoolRewardData({
-        id: `${pool.id}-${event.data_decoded.reward_token.inner}`,
+        id: `${pool.id}-${event.data_decoded.reward_token}`,
         pool_address: pool.id.toString(),
-        pool: Promise.resolve(pool),
-        reward_token: event.data_decoded.reward_token.inner,
+        poolID: pool.id,
+        reward_token: event.data_decoded.reward_token,
         reward_balance: 0n,
         distributor: event.data_decoded.rewards_distributor,
         duration: event.data_decoded.rewards_duration,
@@ -97,17 +97,17 @@ export function multiRewardsProcessor(
       });
 
       // Update pool
-      pool.reward_tokens = [...pool.reward_tokens, event.data_decoded.reward_token.inner];
+      pool.reward_tokens = [...pool.reward_tokens, event.data_decoded.reward_token];
 
       await store.upsert(rewardData);
       await store.upsert(pool);
 
       // Create event entity
       const addedEvent = new MRRewardAddedEvent({
-        id: `${pool.id}-${event.data_decoded.reward_token.inner}-${module.reward_count}`,
-        pool: Promise.resolve(pool),
+        id: `${pool.id}-${event.data_decoded.reward_token}-${module.reward_count}`,
+        poolID: pool.id,
         transaction_version: BigInt(ctx.version),
-        reward_token: event.data_decoded.reward_token.inner,
+        reward_token: event.data_decoded.reward_token,
         distributor: event.data_decoded.rewards_distributor,
         duration: event.data_decoded.rewards_duration,
         timestamp,
@@ -126,7 +126,7 @@ export function multiRewardsProcessor(
       const pool = await getStakingPool(event.data_decoded.pool_address, store);
       if (!pool) throw new Error("Pool not found");
 
-      const rewardData = await getRewardData(pool.id.toString(), event.data_decoded.reward_token.inner, store);
+      const rewardData = await getRewardData(pool.id.toString(), event.data_decoded.reward_token, store);
       if (!rewardData) throw new Error("Reward data not found");
 
       // Update global reward state
@@ -154,10 +154,10 @@ export function multiRewardsProcessor(
 
       // Create event entity
       const notifiedEvent = new MRRewardNotifiedEvent({
-        id: `${pool.id}-${event.data_decoded.reward_token.inner}-${module.notify_count}`,
-        pool: Promise.resolve(pool),
+        id: `${pool.id}-${event.data_decoded.reward_token}-${module.notify_count}`,
+        poolID: pool.id,
         transaction_version: BigInt(ctx.version),
-        reward_token: event.data_decoded.reward_token.inner,
+        reward_token: event.data_decoded.reward_token,
         reward_amount: reward_amount,
         reward_rate_u12: rewardData.reward_rate_u12,
         period_finish: period_finish,
@@ -179,7 +179,7 @@ export function multiRewardsProcessor(
         throw new Error("Pool not found");
       }
 
-      const rewardData = await getRewardData(pool.id.toString(), event.data_decoded.reward_token.inner, store);
+      const rewardData = await getRewardData(pool.id.toString(), event.data_decoded.reward_token, store);
       if (!rewardData) {
         throw new Error("Reward data not found");
       }
@@ -197,10 +197,10 @@ export function multiRewardsProcessor(
 
       // Create event entity
       const durationUpdatedEvent = new MRRewardsDurationUpdatedEvent({
-        id: `${pool.id}-${event.data_decoded.reward_token.inner}-${module.update_duration_count}`,
-        pool: Promise.resolve(pool),
+        id: `${pool.id}-${event.data_decoded.reward_token}-${module.update_duration_count}`,
+        poolID: pool.id,
         transaction_version: BigInt(ctx.version),
-        reward_token: event.data_decoded.reward_token.inner,
+        reward_token: event.data_decoded.reward_token,
         new_duration: event.data_decoded.new_duration,
         timestamp,
       });
@@ -222,11 +222,11 @@ export function multiRewardsProcessor(
       await updateRewards(pool, userAddress, timestamp, store);
 
       // Get reward data
-      const rewardData = await getRewardData(pool.id.toString(), event.data_decoded.reward_token.inner, store);
+      const rewardData = await getRewardData(pool.id.toString(), event.data_decoded.reward_token, store);
       if (!rewardData) throw new Error("Reward data not found");
 
       // Get or create user reward data
-      const userRewardDataId = `${userAddress}-${pool.id}-${event.data_decoded.reward_token.inner}`;
+      const userRewardDataId = `${userAddress}-${pool.id}-${event.data_decoded.reward_token}`;
       let userRewardData = await store.get(MRUserRewardData, userRewardDataId);
 
       if (!userRewardData) {
@@ -236,8 +236,8 @@ export function multiRewardsProcessor(
 
         userRewardData = new MRUserRewardData({
           id: userRewardDataId,
-          subscription: Promise.resolve(subscription),
-          reward_token: event.data_decoded.reward_token.inner,
+          subscriptionID: subscription.id,
+          reward_token: event.data_decoded.reward_token,
           reward_per_token_paid_u12: rewardData.reward_per_token_stored_u12, // Match the current stored value
           unclaimed_rewards: 0n,
           total_claimed: 0n,
@@ -253,13 +253,15 @@ export function multiRewardsProcessor(
       // Update pool stats
       pool.claim_count += 1;
 
+      const user = await getOrCreateUser(userAddress, store, timestamp);
+
       // Create event entity
       const claimEvent = new MRRewardClaimedEvent({
-        id: `${pool.id}-${userAddress}-${event.data_decoded.reward_token.inner}-${module.claim_count}`,
-        pool: Promise.resolve(pool),
-        user: Promise.resolve(await getOrCreateUser(userAddress, store, timestamp)),
+        id: `${pool.id}-${userAddress}-${event.data_decoded.reward_token}-${module.claim_count}`,
+        poolID: pool.id,
+        userID: user.id,
         transaction_version: BigInt(ctx.version),
-        reward_token: event.data_decoded.reward_token.inner,
+        reward_token: event.data_decoded.reward_token,
         claim_amount,
         timestamp,
       });
@@ -271,63 +273,67 @@ export function multiRewardsProcessor(
       await store.upsert(claimEvent);
     })
     .onEventStakeEvent(async (event, ctx) => {
-      console.log("In StakeEvent 1");
       const store = getStore(supportedChainId, ctx);
       const timestampMicros = ctx.getTimestamp();
       const timestamp = getTimestampInSeconds(timestampMicros);
       const userAddress = event.data_decoded.user;
       const stakeAmount = event.data_decoded.amount;
-      const staking_token = event.data_decoded.staking_token.inner;
-
-      console.log("In StakeEvent 2");
+      const staking_token = event.data_decoded.staking_token;
 
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "stake_count");
 
-      console.log("In StakeEvent 3");
-
       // Get or create user
       const user = await getOrCreateUser(userAddress, store, timestamp);
-
-      console.log("In StakeEvent 4");
 
       // Get or create user staked balance
       const userStakedBalance = await getOrCreateUserStakedBalance(userAddress, staking_token, store, timestamp);
 
-      console.log("In StakeEvent 5");
-
-      // Get all active subscriptions for this user using list
-      const activeSubscriptions = await store.list(MRUserSubscription, [
+      // Get subscriptions by user first
+      const userSubscriptions = await store.list(MRUserSubscription, [
         { field: "user_address", op: "=", value: userAddress },
-        { field: "is_currently_subscribed", op: "=", value: true },
       ]);
 
-      console.log(`In StakeEvent 6; ${activeSubscriptions.length}`);
+      // Then filter for active ones in JavaScript
+      const activeSubscriptions = userSubscriptions.filter(
+        (subscription) => subscription.is_currently_subscribed === true,
+      );
 
       // Update rewards and total staked for each subscribed pool
       for (const subscription of activeSubscriptions) {
+        // TODO: the following validation is only to confirm if the live processor has the same issue
+        // as the local/test processor wrt filters: https://github.com/sentioxyz/sentio-sdk/issues/1099
+        // these checks effectively serve as invariants
+        if (subscription.userID.toString() !== userAddress) {
+          throw new Error("filter not working for user_address");
+        }
+
+        if (!subscription.is_currently_subscribed) {
+          throw new Error("filter not working for is_currently_subscribed");
+        }
+
         const pool = await getStakingPool(subscription.pool_address, store);
         if (!pool) continue;
 
         // Only update pools for matching staking token
-        if (pool.staking_token === event.data_decoded.staking_token.inner) {
+        if (pool.staking_token === event.data_decoded.staking_token) {
           // Update rewards before changing stake
           await updateRewards(pool, userAddress, timestamp, store);
 
-          // Update total subscribed
+          // Update total subscribed with ONLY the newly staked amount
           pool.total_subscribed += stakeAmount;
           await store.upsert(pool);
         }
       }
 
-      console.log("In StakeEvent 7");
-
       // Update user's staked balance
       userStakedBalance.amount += stakeAmount;
 
+      const stakeEventId = `${userAddress}-${staking_token}-${module.stake_count}`;
+
       // Create stake event
       const stakeEvent = new MRStakeEvent({
-        id: `${userAddress}-${staking_token}-${module.stake_count}`,
+        id: stakeEventId,
         userID: userAddress,
         // user: Promise.resolve(user),
         transaction_version: BigInt(ctx.version),
@@ -336,50 +342,49 @@ export function multiRewardsProcessor(
         timestamp,
       });
 
-      console.log("In StakeEvent 8");
-
       // Persist updates
       await store.upsert(user);
-
-      console.log("In StakeEvent 8.1");
-
       await store.upsert(userStakedBalance);
-
-      console.log("In StakeEvent 8.2");
       await store.upsert(stakeEvent);
-
-      console.log("In StakeEvent 9");
-
-      const fetchedUserStakedBalance = await getUserStakedBalance(userAddress, staking_token, store);
-      /* eslint-disable */
-      console.log(
-        `StakeEvent: timestamp: ${timestampMicros}; userAddress: ${userAddress}: staking_token: ${staking_token}; fetchedUserStakedBalance: ${!!fetchedUserStakedBalance}`,
-      );
-      /* eslint-enable */
     })
     .onEventWithdrawEvent(async (event, ctx) => {
       const store = getStore(supportedChainId, ctx);
       const timestamp = getTimestampInSeconds(ctx.getTimestamp());
       const userAddress = event.data_decoded.user;
       const withdrawAmount = event.data_decoded.amount;
-      const staking_token = event.data_decoded.staking_token.inner;
+      const staking_token = event.data_decoded.staking_token;
 
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "withdrawal_count");
 
-      // Get active subscriptions for this user and staking token
-      const activeSubscriptions = await store.list(MRUserSubscription, [
+      // Get subscriptions by user first
+      const userSubscriptions = await store.list(MRUserSubscription, [
         { field: "user_address", op: "=", value: userAddress },
-        { field: "is_currently_subscribed", op: "=", value: true },
       ]);
+
+      // Then filter for active ones in JavaScript
+      const activeSubscriptions = userSubscriptions.filter(
+        (subscription) => subscription.is_currently_subscribed === true,
+      );
 
       // First update rewards for all affected pools
       for (const subscription of activeSubscriptions) {
+        // TODO: the following validation is only to confirm if the live processor has the same issue
+        // as the local/test processor wrt filters: https://github.com/sentioxyz/sentio-sdk/issues/1099
+        // these checks effectively serve as invariants
+        if (subscription.userID.toString() !== userAddress) {
+          throw new Error("filter not working for user_address");
+        }
+
+        if (!subscription.is_currently_subscribed) {
+          throw new Error("filter not working for is_currently_subscribed");
+        }
+
         const pool = await getStakingPool(subscription.pool_address, store);
         if (!pool) continue;
 
         // Only update pools for matching staking token
-        if (pool.staking_token === event.data_decoded.staking_token.inner) {
+        if (pool.staking_token === event.data_decoded.staking_token) {
           // Update rewards before reducing stake
           await updateRewards(pool, userAddress, timestamp, store);
         }
@@ -398,15 +403,18 @@ export function multiRewardsProcessor(
         const pool = await getStakingPool(subscription.pool_address, store);
         if (!pool) continue;
 
-        pool.total_subscribed -= withdrawAmount;
-        pool.withdrawal_count += 1; // Analytics only
-        await store.upsert(pool);
+        // Only update pools with matching staking token
+        if (pool.staking_token === event.data_decoded.staking_token) {
+          pool.total_subscribed -= withdrawAmount;
+          pool.withdrawal_count += 1; // Analytics only
+          await store.upsert(pool);
+        }
       }
 
       // Create withdraw event
       const withdrawEvent = new MRWithdrawEvent({
         id: `${userAddress}-${staking_token}-${module.withdrawal_count}`,
-        user: Promise.resolve(user),
+        userID: user.id,
         transaction_version: BigInt(ctx.version),
         staking_token,
         amount: withdrawAmount,
@@ -419,13 +427,11 @@ export function multiRewardsProcessor(
       await store.upsert(withdrawEvent);
     })
     .onEventSubscriptionEvent(async (event, ctx) => {
-      console.log("In SubscriptionEvent");
       const store = getStore(supportedChainId, ctx);
-      const timestampMicros = ctx.getTimestamp();
-      const timestamp = getTimestampInSeconds(timestampMicros);
+      const timestamp = getTimestampInSeconds(ctx.getTimestamp());
       const userAddress = event.data_decoded.user;
       const poolAddress = event.data_decoded.pool_address;
-      const staking_token = event.data_decoded.staking_token.inner;
+      const staking_token = event.data_decoded.staking_token;
 
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "subscription_count");
@@ -439,60 +445,74 @@ export function multiRewardsProcessor(
       // Get user staked balance
       const userStakedBalance = await getUserStakedBalance(userAddress, staking_token, store);
       if (!userStakedBalance || userStakedBalance.amount === 0n) {
-        /* eslint-disable */
-        console.log(
-          `SubscriptionEvent: timestamp: ${timestampMicros}; userAddress: ${userAddress}: staking_token: ${staking_token}; userStakedBalance: ${!!userStakedBalance}`,
-        );
-        /* eslint-enable */
         throw new Error("User has no staked balance");
       }
 
       // Get or create user
       const user = await getOrCreateUser(userAddress, store, timestamp);
 
-      // Update rewards before modifying subscription state
+      // Check if the user has had a previous subscription to this pool
+      const existingSubscription = await store.get(MRUserSubscription, `${userAddress}-${poolAddress}`);
+      let subscription;
+
+      if (!existingSubscription) {
+        // Create new subscription if one doesn't already exist,
+        // but mark it as NOT subscribed yet (until after updateRewards)
+        subscription = new MRUserSubscription({
+          id: `${userAddress}-${poolAddress}`,
+          poolID: pool.id,
+          userID: user.id,
+          user_address: userAddress,
+          pool_address: poolAddress,
+          staked_balanceID: userStakedBalance.id,
+          user_reward_datasIDs: [],
+          is_currently_subscribed: false, // Initially false
+          subscribed_at: timestamp,
+        });
+      } else {
+        // Use existing subscription but don't change subscription status yet
+        subscription = existingSubscription;
+      }
+
+      // Save the subscription entity with is_currently_subscribed still false
+      await store.upsert(subscription);
+
+      // Call updateRewards when user is still NOT marked as subscribed
+      // This ensures earned_amount calculations will be 0
       await updateRewards(pool, userAddress, timestamp, store);
 
-      // Create new subscription
-      const subscription = new MRUserSubscription({
-        id: `${userAddress}-${poolAddress}`,
-        pool: Promise.resolve(pool),
-        user: Promise.resolve(user),
-        user_address: userAddress,
-        pool_address: poolAddress,
-        staked_balance: Promise.resolve(userStakedBalance),
-        user_reward_datas: Promise.resolve([]),
-        is_currently_subscribed: true,
-        subscribed_at: timestamp,
-      });
+      // Update pool stats too
+      if (!existingSubscription || (existingSubscription && !existingSubscription.is_currently_subscribed)) {
+        pool.subscriber_count += 1;
+        pool.total_subscribed += userStakedBalance.amount;
+      }
 
-      // Update pool stats
-      pool.subscriber_count += 1;
-      pool.total_subscribed += userStakedBalance.amount;
+      // Now update the subscription status and pool stats AFTER updateRewards
+      subscription.is_currently_subscribed = true;
+
+      // Save the updated entities
+      await store.upsert(subscription);
+      await store.upsert(pool);
 
       // Create subscription event
-      const subscriptionEvent = new SubscriptionEvent({
+      const subscriptionEvent = new MRSubscriptionEvent({
         id: `${userAddress}-${poolAddress}-${module.subscription_count}`,
-        pool: Promise.resolve(pool),
-        user: Promise.resolve(user),
+        poolID: pool.id,
+        userID: user.id,
         transaction_version: BigInt(ctx.version),
         staking_token,
         timestamp,
       });
 
-      // Persist all updates
-      await store.upsert(subscription);
-      await store.upsert(pool);
+      // Persist the subscription event
       await store.upsert(subscriptionEvent);
-
-      // Update global module stats
     })
     .onEventUnsubscriptionEvent(async (event, ctx) => {
       const store = getStore(supportedChainId, ctx);
       const timestamp = getTimestampInSeconds(ctx.getTimestamp());
       const userAddress = event.data_decoded.user;
       const poolAddress = event.data_decoded.pool_address;
-      const staking_token = event.data_decoded.staking_token.inner;
+      const staking_token = event.data_decoded.staking_token;
 
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "unsubscription_count");
@@ -540,8 +560,8 @@ export function multiRewardsProcessor(
       // Create unsubscribe event
       const unsubscriptionEvent = new MRUnsubscriptionEvent({
         id: `${userAddress}-${poolAddress}-${module.unsubscription_count}`,
-        pool: Promise.resolve(pool),
-        user: Promise.resolve(user),
+        poolID: pool.id,
+        userID: user.id,
         transaction_version: BigInt(ctx.version),
         staking_token,
         timestamp,
@@ -551,6 +571,70 @@ export function multiRewardsProcessor(
       await store.upsert(subscription);
       await store.upsert(pool);
       await store.upsert(unsubscriptionEvent);
+    })
+    .onEventEmergencyWithdrawEvent(async (event, ctx) => {
+      const store = getStore(supportedChainId, ctx);
+      const timestamp = getTimestampInSeconds(ctx.getTimestamp());
+      const userAddress = event.data_decoded.user;
+      const stakingToken = event.data_decoded.staking_token;
+      const withdrawAmount = BigInt(event.data_decoded.amount);
+
+      // Get module for stats tracking
+      const module = await getOrCreateModule(store);
+      await incrementModuleStats(module, store, timestamp, "emergency_withdraw_count");
+
+      // Get user's staked balance (ensure it exists)
+      const userStakedBalance = await getUserStakedBalance(userAddress, stakingToken, store);
+      if (!userStakedBalance) {
+        throw new Error("User staked balance not found");
+      }
+
+      // Update user's staked balance to 0
+      userStakedBalance.amount = 0n;
+      userStakedBalance.last_update_time = timestamp;
+      await store.upsert(userStakedBalance);
+
+      // Get all subscribed pools for this staking token
+      const userSubscriptions = await store.list(MRUserSubscription, [
+        { field: "user_address", op: "=", value: userAddress },
+      ]);
+
+      // Filter for subscriptions with matching staking token that are currently active
+      for (const subscription of userSubscriptions) {
+        // Validate subscription belongs to this user
+        if (subscription.userID.toString() !== userAddress) {
+          continue;
+        }
+
+        // Get the pool for this subscription
+        const pool = await getStakingPool(subscription.pool_address, store);
+        if (!pool) continue;
+
+        // Only update pools for matching staking token
+        if (pool.staking_token !== stakingToken) {
+          continue;
+        }
+
+        // If the user is subscribed to this pool, update the pool's total_subscribed
+        if (subscription.is_currently_subscribed) {
+          // Reduce pool's total_subscribed by the withdrawn amount
+          pool.total_subscribed -= withdrawAmount;
+          await store.upsert(pool);
+        }
+      }
+
+      // Create emergency withdraw event entity
+      const emergencyWithdrawEvent = new MREmergencyWithdrawEvent({
+        id: `${userAddress}-${stakingToken}-${module.emergency_withdraw_count}`,
+        userID: userAddress,
+        transaction_version: BigInt(ctx.version),
+        staking_token: stakingToken,
+        amount: withdrawAmount,
+        timestamp,
+      });
+
+      // Persist the event
+      await store.upsert(emergencyWithdrawEvent);
     });
 }
 
@@ -576,6 +660,7 @@ async function getOrCreateModule(store: Store): Promise<MRModule> {
       unsubscription_count: 0,
       stake_count: 0,
       withdrawal_count: 0,
+      emergency_withdraw_count: 0,
       user_count: 0,
       last_update_time: 0n,
     });
@@ -611,7 +696,8 @@ async function incrementModuleStats(
     | "user_count"
     | "update_duration_count"
     | "unsubscription_count"
-    | "withdrawal_count",
+    | "withdrawal_count"
+    | "emergency_withdraw_count",
 ) {
   switch (stat) {
     case "claim_count":
@@ -643,6 +729,9 @@ async function incrementModuleStats(
       break;
     case "withdrawal_count":
       module.withdrawal_count++;
+      break;
+    case "emergency_withdraw_count":
+      module.emergency_withdraw_count++;
       break;
   }
   module.last_update_time = last_update_time;
@@ -686,7 +775,7 @@ async function updateRewards(pool: MRStakingPool, userAddress: string, timestamp
     if (userAddress !== "0x0") {
       // Check if user is subscribed to this pool
       const subscription = await getUserSubscription(userAddress, pool.id.toString(), store);
-      if (!subscription || !subscription.is_currently_subscribed) continue;
+      if (!subscription) continue;
 
       // Get or create user reward data
       const userRewardDataId = `${userAddress}-${pool.id}-${reward_token}`;
@@ -696,9 +785,9 @@ async function updateRewards(pool: MRStakingPool, userAddress: string, timestamp
         // Initialize new user reward data with zero values
         userData = new MRUserRewardData({
           id: userRewardDataId,
-          subscription: Promise.resolve(subscription),
+          subscriptionID: subscription.id,
           reward_token,
-          reward_per_token_paid_u12: 0n,
+          reward_per_token_paid_u12: newRewardPerToken,
           unclaimed_rewards: 0n,
           total_claimed: 0n,
         });
@@ -708,9 +797,17 @@ async function updateRewards(pool: MRStakingPool, userAddress: string, timestamp
       const userBalance = await getUserStakedBalance(userAddress, pool.staking_token, store);
       if (!userBalance) continue;
 
-      // Calculate earned rewards
-      const earnedAmount =
-        (userBalance.amount * (newRewardPerToken - userData.reward_per_token_paid_u12)) / U12_PRECISION;
+      // Calculate earned rewards - considering subscription status
+      let earnedAmount;
+      if (subscription.is_currently_subscribed) {
+        // If subscribed, use full balance for calculation
+        earnedAmount = (userBalance.amount * (newRewardPerToken - userData.reward_per_token_paid_u12)) / U12_PRECISION;
+      } else {
+        // If not subscribed, treat as having 0 balance (this path should not occur in our fixed implementation,
+        // but included for completeness and to match the Move implementation logic)
+        earnedAmount = 0n;
+      }
+
       userData.unclaimed_rewards += earnedAmount;
       userData.reward_per_token_paid_u12 = newRewardPerToken;
 
@@ -769,8 +866,8 @@ async function getOrCreateUser(userAddress: string, store: Store, last_update_ti
   if (!user) {
     user = new MRUser({
       id: userAddress,
-      staked_balances: Promise.resolve([]),
-      subscriptions: Promise.resolve([]),
+      staked_balancesIDs: [],
+      subscriptionsIDs: [],
       created_at: BigInt(Date.now()) / 1000n,
     });
     await store.upsert(user);
@@ -800,18 +897,18 @@ async function getOrCreateUserStakedBalance(
 
     balance = new MRUserStakedBalance({
       id,
-      user: Promise.resolve(user),
+      userID: user.id,
       staking_token,
       amount: 0n,
-      subscriptions: Promise.resolve([]),
+      subscriptionsIDs: [],
       last_update_time: 0n,
     });
     await store.upsert(balance);
 
     // Update user's staked balances list
-    const staked_balances = await user.staked_balances;
+    const staked_balances = await user.staked_balances();
     staked_balances.push(balance);
-    user.staked_balances = Promise.resolve(staked_balances);
+    user._staked_balances = Promise.resolve(staked_balances);
     await store.upsert(user);
   }
 
@@ -820,52 +917,73 @@ async function getOrCreateUserStakedBalance(
 
 // - - - TEST ONLY HELPERS - - -
 
-let test_store = createStore(); // Only for use in tests
-
 function getStore(chain_id: SupportedAptosChainId, ctx: AptosContext): Store {
-  if (chain_id === SupportedAptosChainId.JESTNET || ctx.store === undefined) {
-    return test_store;
-  }
   return ctx.store;
 }
 
-export function resetTestDb() {
-  test_store = resetDb();
-}
-
 export class MultiRewardsTestReader {
+  constructor(private store: Store) {}
+
   async getModule(): Promise<MRModule | undefined> {
-    return test_store.get(MRModule, "1");
+    return this.store.get(MRModule, "1");
   }
 
   // Pool related getters
 
   async getStakingPool(poolAddress: string): Promise<MRStakingPool | undefined> {
-    return getStakingPool(poolAddress, test_store);
+    return getStakingPool(poolAddress, this.store);
   }
 
   async getPoolRewardData(poolId: string, rewardToken: string): Promise<MRPoolRewardData | undefined> {
-    return getRewardData(poolId, rewardToken, test_store);
+    return getRewardData(poolId, rewardToken, this.store);
   }
 
   // User related getters
 
   async getUser(userAddress: string): Promise<MRUser | undefined> {
-    return test_store.get(MRUser, userAddress);
+    return this.store.get(MRUser, userAddress);
   }
 
   async getUserSubscription(userAddress: string, poolId: string): Promise<MRUserSubscription | undefined> {
-    return getUserSubscription(userAddress, poolId, test_store);
+    return getUserSubscription(userAddress, poolId, this.store);
   }
 
   async getUserStakedBalance(userAddress: string, stakingToken: string): Promise<MRUserStakedBalance | undefined> {
-    return getUserStakedBalance(userAddress, stakingToken, test_store);
+    return getUserStakedBalance(userAddress, stakingToken, this.store);
+  }
+
+  async getUserRewardData(
+    userAddress: string,
+    poolAddress: string,
+    rewardToken: string,
+  ): Promise<MRUserRewardData | undefined> {
+    const userRewardDataId = `${userAddress}-${poolAddress}-${rewardToken}`;
+    return this.store.get(MRUserRewardData, userRewardDataId);
   }
 
   // Event getters
 
   async getStakeEvent(user: string, stakingToken: string, stakeCount: number): Promise<MRStakeEvent | undefined> {
-    return test_store.get(MRStakeEvent, `${user}-${stakingToken}-${stakeCount}`);
+    const stakeEventId = `${user}-${stakingToken}-${stakeCount}`;
+    return this.store.get(MRStakeEvent, stakeEventId);
+  }
+
+  async getSubscriptionEvent(
+    user: string,
+    poolAddress: string,
+    subscriptionCount: number,
+  ): Promise<MRSubscriptionEvent | undefined> {
+    const subscriptionEventId = `${user}-${poolAddress}-${subscriptionCount}`;
+    return this.store.get(MRSubscriptionEvent, subscriptionEventId);
+  }
+
+  async getUnsubscriptionEvent(
+    user: string,
+    poolAddress: string,
+    unsubscriptionCount: number,
+  ): Promise<MRUnsubscriptionEvent | undefined> {
+    const unsubscriptionEventId = `${user}-${poolAddress}-${unsubscriptionCount}`;
+    return this.store.get(MRUnsubscriptionEvent, unsubscriptionEventId);
   }
 
   // Count getters

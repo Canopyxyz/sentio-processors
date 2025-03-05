@@ -1,9 +1,9 @@
-import { before, beforeEach, describe, test } from "node:test";
+import { afterEach, before, describe, test } from "node:test";
 import assert from "assert";
 import { TestProcessorServer } from "@sentio/sdk/testing";
 
-import { MultiRewardsTestReader, resetTestDb } from "../../../processors/multi-rewards-processor.js";
-import { multi_rewards_abi } from "../../../abis/multi-rewards-testnet.js";
+import { MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
+import { multi_rewards_abi } from "../../../abis/multi_rewards.js";
 import { TestProcessor } from "../../utils/processor.js";
 import { multiRewardsHandlerIds } from "../common/constants.js";
 import { generateRandomAddress } from "../../common/helpers.js";
@@ -12,17 +12,17 @@ import { verifyPoolState } from "../common/helpers.js";
 describe("Create Staking Pool", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
   const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
-  const multiRewardsTestReader = new MultiRewardsTestReader();
 
   before(async () => {
     await service.start();
   });
 
-  beforeEach(async () => {
-    resetTestDb();
+  afterEach(async () => {
+    await service.db.reset();
   });
 
   test("Basic Staking Pool Creation", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
     // Generate test data
     const poolAddress = generateRandomAddress();
     const stakingToken = generateRandomAddress();
@@ -56,6 +56,7 @@ describe("Create Staking Pool", async () => {
   });
 
   test("Multiple Pools Same Creator", async () => {
+    const multiRewardsTestReader = new MultiRewardsTestReader(service.store);
     // Generate test data
     const creator = generateRandomAddress();
     const stakingToken = generateRandomAddress();
@@ -113,6 +114,7 @@ describe("Create Staking Pool", async () => {
     // Verify module state reflects two pools
     const module = await multiRewardsTestReader.getModule();
     assert(module, "Module should exist");
+
     assert.strictEqual(module.pool_count, 2, "Module should track two pools");
   });
 });
