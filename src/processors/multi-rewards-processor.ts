@@ -20,7 +20,7 @@ import {
   MREmergencyWithdrawEvent,
 } from "../schema/schema.rewards.js";
 
-// import { multi_rewards as multi_rewards_movement } from "../types/aptos/movement-porto/multi-rewards-movement.js";
+import { multi_rewards as multi_rewards_movement } from "../types/aptos/movement-mainnet/multi_rewards.js";
 import { multi_rewards as multi_rewards_testnet } from "../types/aptos/testnet/multi_rewards.js";
 
 import { SupportedAptosChainId } from "../chains.js";
@@ -30,8 +30,7 @@ const U12_PRECISION = 10n ** 12n;
 // const TOLERANCE = 1n; // For reward rate comparison
 
 // Types
-// type MultiRewardsProcessor = typeof multi_rewards_testnet | typeof multi_rewards_movement;
-type MultiRewardsProcessor = typeof multi_rewards_testnet;
+type MultiRewardsProcessor = typeof multi_rewards_testnet | typeof multi_rewards_movement;
 
 // Core processor setup
 export function multiRewardsProcessor(

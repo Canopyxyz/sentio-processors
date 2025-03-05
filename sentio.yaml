@@ -11,3 +11,6 @@ contracts:
   - chain: aptos_testnet
     address: "0x53bd2e505058fd084d426ecb1760e02cdc40aa9171f9b4770a0215b5a44b5d4a"
     name: multi_rewards
+  - chain: aptos_movement_mainnet
+    address: "0x113a1769acc5ce21b5ece6f9533eef6dd34c758911fa5235124c87ff1298633b"
+    name: multi_rewards
