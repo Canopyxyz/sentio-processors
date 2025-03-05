@@ -39,6 +39,11 @@ switch (supportedChainId) {
     setupMultiRewardsProcessor(supportedChainId);
     break;
   }
+  case SupportedAptosChainId.MOVEMENT_MAINNET: {
+    // Movement mainnet has modules to be indexed by the following processors
+    setupMultiRewardsProcessor(supportedChainId);
+    break;
+  }
   default: {
     throw new Error(`Unsupported chainId: ${supportedChainId}`);
   }

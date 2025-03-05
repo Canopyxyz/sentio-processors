@@ -22,6 +22,8 @@ pnpm gen
 
 ## Adding an ABI for a New Processor
 
+### Less Preferred Way
+
 To add a new ABI, you'll need to pull the ABI from on chain. The method to do so differs from chain to chain. Once aquired, add the ABI to the `./abis` folder under the proper folder structure for the chain. The ABI will be picked up by the next `pnpm gen` command.
 
 For example on Aptos the ABI for a given module can be fetched as follows:
@@ -47,6 +49,8 @@ echo "export const ABI = $(curl https://fullnode.$NETWORK.aptoslabs.com/v1/accou
 
 curl https://fullnode.$NETWORK.aptoslabs.com/v1/accounts/$CONTRACT_ADDRESS/modules > abi.json
 ```
+
+### More Preferred Way
 
 A more convenient way to get the ABI for contracts/modules published under a given address on a given chain would be to use the following command:
 
