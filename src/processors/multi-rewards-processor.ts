@@ -905,10 +905,9 @@ async function getOrCreateUserStakedBalance(
     });
     await store.upsert(balance);
 
-    // Update user's staked balances list
-    const staked_balances = await user.staked_balances();
-    staked_balances.push(balance);
-    user._staked_balances = Promise.resolve(staked_balances);
+    // UPDATE: Instead of using the relationship method directly,
+    // manually update the staked_balancesIDs array
+    user.staked_balancesIDs.push(balance.id);
     await store.upsert(user);
   }
 
