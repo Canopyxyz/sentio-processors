@@ -17,7 +17,7 @@
     "fmt": "prettier --write '**/*.(ts|tsx)'"
   },
   "dependencies": {
-    "@sentio/sdk": "2.57.8",
+    "@sentio/sdk": "2.58.4",
     "@thalalabs/surf": "^1.7.3",
     "colorette": "^2.0.20",
     "decimal.js": "^10.4.3",
@@ -28,7 +28,7 @@
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.16.0",
     "@jest/globals": "^29.7.0",
-    "@sentio/cli": "2.25.3",
+    "@sentio/cli": "2.26.1",
     "@typescript-eslint/eslint-plugin": "^8.17.0",
     "@typescript-eslint/parser": "^8.17.0",
     "corepack": "^0.29.4",
