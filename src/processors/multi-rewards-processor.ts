@@ -53,7 +53,6 @@ export function multiRewardsProcessor(
         creator: event.data_decoded.creator,
         staking_token: event.data_decoded.staking_token,
         reward_tokens: [],
-        reward_datasIDs: [],
         withdrawal_count: 0,
         claim_count: 0,
         subscriber_count: 0,
@@ -465,7 +464,6 @@ export function multiRewardsProcessor(
           user_address: userAddress,
           pool_address: poolAddress,
           staked_balanceID: userStakedBalance.id,
-          user_reward_datasIDs: [],
           is_currently_subscribed: false, // Initially false
           subscribed_at: timestamp,
         });
@@ -866,8 +864,6 @@ async function getOrCreateUser(userAddress: string, store: Store, last_update_ti
   if (!user) {
     user = new MRUser({
       id: userAddress,
-      staked_balancesIDs: [],
-      subscriptionsIDs: [],
       created_at: BigInt(Date.now()) / 1000n,
     });
     await store.upsert(user);
@@ -900,14 +896,12 @@ async function getOrCreateUserStakedBalance(
       userID: user.id,
       staking_token,
       amount: 0n,
-      subscriptionsIDs: [],
       last_update_time: 0n,
     });
     await store.upsert(balance);
 
     // UPDATE: Instead of using the relationship method directly,
     // manually update the staked_balancesIDs array
-    user.staked_balancesIDs.push(balance.id);
     await store.upsert(user);
   }
 
