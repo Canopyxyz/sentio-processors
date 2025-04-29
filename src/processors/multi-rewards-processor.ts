@@ -25,6 +25,17 @@ import { multi_rewards as multi_rewards_testnet } from "../types/aptos/testnet/m
 
 import { SupportedAptosChainId } from "../chains.js";
 
+// Constants for the specific entities in question
+const TARGET_POOL_ADDRESS = "0x224bbdde63435ab5a8d53e8257d94171004e5e1a7cd910d9548e7b21a56c1969";
+const TARGET_USER_ADDRESS = "0x65f37a7e461e6263f7ef4edaa40a3d7c8683a7cb4a04bc92b4e53a0df3652e56";
+
+// Helper function to conditionally log for our target entities
+function targetLog(message: string, pool?: string, user?: string) {
+  if (pool === TARGET_POOL_ADDRESS || user === TARGET_USER_ADDRESS) {
+    console.log(`[TARGET-DEBUG] ${message}`);
+  }
+}
+
 // Constants
 const U12_PRECISION = 10n ** 12n;
 // const TOLERANCE = 1n; // For reward rate comparison
@@ -209,13 +220,30 @@ export function multiRewardsProcessor(
       const store = getStore(supportedChainId, ctx);
       const timestamp = getTimestampInSeconds(ctx.getTimestamp());
       const userAddress = event.data_decoded.user;
+      const poolAddress = event.data_decoded.pool_address;
+
+      targetLog(`RewardClaimedEvent at TX ${ctx.version} - User: ${userAddress}, Pool: ${poolAddress}`, poolAddress, userAddress);
 
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "claim_count");
 
+      const subscription = await getUserSubscription(userAddress, poolAddress, store);
+      targetLog(`Subscription found: ${!!subscription}, ID: ${userAddress}-${poolAddress}`, poolAddress, userAddress);
+
+      if (subscription) {
+        targetLog(`Subscription details: isSubscribed=${subscription.is_currently_subscribed}, subscribedAt=${subscription.subscribed_at}`, poolAddress, userAddress);
+      }
+
       // Get pool
-      const pool = await getStakingPool(event.data_decoded.pool_address, store);
+      const pool = await getStakingPool(poolAddress, store);
       if (!pool) throw new Error("Pool not found");
+      targetLog(`Pool entity exists: ${!!pool}`, poolAddress, userAddress);
+
+      if (pool) {
+        const stakedBalance = await getUserStakedBalance(userAddress, pool.staking_token, store);
+        targetLog(`StakedBalance exists: ${!!stakedBalance}, amount: ${stakedBalance?.amount}`, poolAddress, userAddress);
+      }
+
 
       // Update rewards before claiming
       await updateRewards(pool, userAddress, timestamp, store);
@@ -231,7 +259,13 @@ export function multiRewardsProcessor(
       if (!userRewardData) {
         // Get subscription - must exist since rewards can only be claimed while subscribed
         const subscription = await getUserSubscription(userAddress, pool.id.toString(), store);
-        if (!subscription) throw new Error("Subscription not found");
+
+        if (!subscription) {
+          targetLog(`CRITICAL: About to fail with "Subscription not found" error at TX ${ctx.version}`, poolAddress, userAddress);
+
+          // Throw the error as before - this will halt processing
+          throw new Error("Subscription not found");
+        }
 
         userRewardData = new MRUserRewardData({
           id: userRewardDataId,
@@ -432,6 +466,11 @@ export function multiRewardsProcessor(
       const poolAddress = event.data_decoded.pool_address;
       const staking_token = event.data_decoded.staking_token;
 
+      // Only log for our target entities
+      if (poolAddress === TARGET_POOL_ADDRESS || userAddress === TARGET_USER_ADDRESS) {
+        targetLog(`SubscriptionEvent at TX ${ctx.version} - User: ${userAddress}, Pool: ${poolAddress}`, poolAddress, userAddress);
+      }
+
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "subscription_count");
 
@@ -504,6 +543,13 @@ export function multiRewardsProcessor(
 
       // Persist the subscription event
       await store.upsert(subscriptionEvent);
+
+      // Log after subscription is created
+      if (poolAddress === TARGET_POOL_ADDRESS || userAddress === TARGET_USER_ADDRESS) {
+        const subResult = await store.get(MRUserSubscription, `${userAddress}-${poolAddress}`);
+        targetLog(`Subscription created/updated: ${!!subResult}, isSubscribed: ${subResult?.is_currently_subscribed}`, poolAddress, userAddress);
+      }
+
     })
     .onEventUnsubscriptionEvent(async (event, ctx) => {
       const store = getStore(supportedChainId, ctx);
@@ -511,6 +557,10 @@ export function multiRewardsProcessor(
       const userAddress = event.data_decoded.user;
       const poolAddress = event.data_decoded.pool_address;
       const staking_token = event.data_decoded.staking_token;
+
+      if (poolAddress === TARGET_POOL_ADDRESS || userAddress === TARGET_USER_ADDRESS) {
+        targetLog(`UnsubscriptionEvent at TX ${ctx.version} - User: ${userAddress}, Pool: ${poolAddress}`, poolAddress, userAddress);
+      }
 
       const module = await getOrCreateModule(store);
       await incrementModuleStats(module, store, timestamp, "unsubscription_count");
@@ -569,6 +619,11 @@ export function multiRewardsProcessor(
       await store.upsert(subscription);
       await store.upsert(pool);
       await store.upsert(unsubscriptionEvent);
+
+      if (poolAddress === TARGET_POOL_ADDRESS || userAddress === TARGET_USER_ADDRESS) {
+        const subResult = await store.get(MRUserSubscription, `${userAddress}-${poolAddress}`);
+        targetLog(`Subscription after unsubscribe: ${!!subResult}, isSubscribed: ${subResult?.is_currently_subscribed}`, poolAddress, userAddress);
+      }
     })
     .onEventEmergencyWithdrawEvent(async (event, ctx) => {
       const store = getStore(supportedChainId, ctx);
@@ -748,6 +803,13 @@ async function updateRewards(pool: MRStakingPool, userAddress: string, timestamp
   for (const reward_token of pool.reward_tokens) {
     const rewardData = await getRewardData(pool.id.toString(), reward_token, store);
     if (!rewardData) continue;
+
+    const isTargetPool = pool.id.toString() === TARGET_POOL_ADDRESS;
+    const isTargetUser = userAddress === TARGET_USER_ADDRESS;
+
+    if (isTargetPool || isTargetUser) {
+      targetLog(`updateRewards called for pool=${pool.id}, user=${userAddress}`, pool.id.toString(), userAddress);
+    }
 
     // Calculate new reward per token
     const newRewardPerToken = calculateRewardPerToken(pool.total_subscribed, rewardData, timestamp);
