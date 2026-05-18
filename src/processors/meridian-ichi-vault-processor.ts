@@ -112,11 +112,13 @@ async function handleVaultCreated(
   const vaultAddress = lower(d.vault_address);
   const timestamp = micros2secs(ctx.getTimestamp());
 
-  const [depositMetaRaw, quoteMetaRaw] = (await ctx.getClient().view({
+  const client = ctx.getClient();
+  const [depositMetaRaw, quoteMetaRaw] = (await client.view({
     payload: {
       function: `${PKG}::ichi_vault_meridian::get_vault_deposit_and_quote_assets`,
       functionArguments: [vaultAddress],
     },
+    options: { ledgerVersion: ctx.version },
   })) as [string, string];
 
   const depositMeta = lower(depositMetaRaw);
@@ -125,6 +127,58 @@ async function handleVaultCreated(
     fetchFaDecimals(ctx, depositMeta),
     fetchFaDecimals(ctx, quoteMeta),
   ]);
+
+  // Read the real on-chain VaultConfig + farming flag rather than hardcoding
+  // the Move defaults. Keeps us correct even if the contract changes its
+  // defaults, and avoids drift if a setter event fires before our first read.
+  const [vaultConfigRaw, farmingEnabledRaw] = (await Promise.all([
+    client.view({
+      payload: {
+        function: `${PKG}::ichi_vault_meridian::get_vault_config`,
+        functionArguments: [vaultAddress],
+      },
+      options: { ledgerVersion: ctx.version },
+    }),
+    client.view({
+      payload: {
+        function: `${PKG}::ichi_vault_meridian::is_farming_enabled`,
+        functionArguments: [vaultAddress],
+      },
+      options: { ledgerVersion: ctx.version },
+    }),
+  ])) as [
+    [
+      string,
+      string,
+      string | number,
+      string | number,
+      string | number,
+      string | number,
+      string | number,
+      string | number,
+      string | number,
+      boolean,
+    ],
+    [boolean],
+  ];
+
+  // get_vault_config returns (amm_fee_recipient, affiliate, max_deposit_amount,
+  //   deposit_hysteresis_ticks, rebalance_hysteresis_ticks,
+  //   deposit_twap_period, aux_deposit_twap_period,
+  //   withdraw_fee_bps, rebalance_cooldown, is_rebalance_paused)
+  const [
+    ammFeeRecipient,
+    affiliateAddr,
+    maxDepositAmount,
+    depositHysteresisTicks,
+    rebalanceHysteresisTicks,
+    depositTwapPeriod,
+    auxDepositTwapPeriod,
+    withdrawFeeBps,
+    rebalanceCooldown,
+    isRebalancePaused,
+  ] = vaultConfigRaw;
+  const [isFarmingEnabled] = farmingEnabledRaw;
 
   // token0 = deposit asset when is_asset_0_deposit, else quote asset.
   const [token0Meta, token0Decimals, token1Meta, token1Decimals] = d.is_asset_0_deposit
@@ -175,17 +229,17 @@ async function handleVaultCreated(
     total_fees_1_collected: 0n,
 
     last_rebalanced_at: 0n,
-    is_rebalance_paused: false,
-    is_farming_enabled: false,
-    withdraw_fee_bps: 0n,
-    deposit_hysteresis_ticks: 0n,
-    rebalance_hysteresis_ticks: 0n,
-    deposit_twap_period: 0n,
-    aux_deposit_twap_period: 0n,
-    rebalance_cooldown: 0n,
-    max_deposit_amount: d.max_deposit_amount,
-    amm_fee_recipient: "0x0",
-    affiliate: lower(d.vault_owner),
+    is_rebalance_paused: isRebalancePaused,
+    is_farming_enabled: isFarmingEnabled,
+    withdraw_fee_bps: BigInt(withdrawFeeBps),
+    deposit_hysteresis_ticks: BigInt(depositHysteresisTicks),
+    rebalance_hysteresis_ticks: BigInt(rebalanceHysteresisTicks),
+    deposit_twap_period: BigInt(depositTwapPeriod),
+    aux_deposit_twap_period: BigInt(auxDepositTwapPeriod),
+    rebalance_cooldown: BigInt(rebalanceCooldown),
+    max_deposit_amount: BigInt(maxDepositAmount),
+    amm_fee_recipient: lower(ammFeeRecipient),
+    affiliate: lower(affiliateAddr),
     staking_pool: undefined,
     whitelisted_reward_tokens: [],
 
@@ -267,9 +321,12 @@ async function handleWithdraw(event: ichi_vault_meridian.WithdrawEventInstance, 
   const live = await fetchVaultLiveState(ctx, vaultAddress, vault.vault_shares_metadata);
   applyLiveState(vault, live, timestamp);
 
-  // Pre-event totals = post-event + withdrawn amounts (+ fees retained by vault).
-  const total0Before = vault.total_amount_0 + d.amount_0 + d.withdraw_fee_0;
-  const total1Before = vault.total_amount_1 + d.amount_1 + d.withdraw_fee_1;
+  // Pre-event totals = post-event + amounts the user actually received. The
+  // on-chain withdraw flow extracts the fees but then re-deposits them back
+  // into the vault (vault.move:530, store_remaining_assets), so withdraw fees
+  // do not contribute to the vault's net decrease.
+  const total0Before = vault.total_amount_0 + d.amount_0;
+  const total1Before = vault.total_amount_1 + d.amount_1;
 
   // Attribute the withdrawer from tx context. Synthetic test transactions
   // without a payload leave this null.
@@ -1036,18 +1093,21 @@ async function fetchVaultLiveState(
         function: `${PKG}::ichi_vault_meridian::get_total_vault_holdings`,
         functionArguments: [vaultAddress],
       },
+      options: { ledgerVersion: ctx.version },
     }),
     client.view({
       payload: {
         function: `${PKG}::ichi_vault_meridian::get_all_valuation_ticks_raw`,
         functionArguments: [vaultAddress],
       },
+      options: { ledgerVersion: ctx.version },
     }),
     client.view({
       payload: {
         function: `${PKG}::ichi_vault_meridian::get_shares_price_e18`,
         functionArguments: [vaultAddress],
       },
+      options: { ledgerVersion: ctx.version },
     }),
     client.view({
       payload: {
@@ -1055,6 +1115,7 @@ async function fetchVaultLiveState(
         typeArguments: ["0x1::fungible_asset::Metadata"],
         functionArguments: [sharesMetadata],
       },
+      options: { ledgerVersion: ctx.version },
     }),
   ]);
 
@@ -1103,6 +1164,7 @@ async function fetchFaDecimals(ctx: AptosContext, metadata: string): Promise<num
       typeArguments: ["0x1::fungible_asset::Metadata"],
       functionArguments: [metadata],
     },
+    options: { ledgerVersion: ctx.version },
   })) as [number | string];
   return Number(res[0]);
 }
@@ -1120,6 +1182,7 @@ async function rebuildPositions(ctx: AptosContext, vault: MIVVault, timestamp: b
       function: `${PKG}::ichi_vault_meridian::get_position_count`,
       functionArguments: [vault.id.toString()],
     },
+    options: { ledgerVersion: ctx.version },
   })) as [number | string];
   const count = Number(countRaw);
 
@@ -1129,6 +1192,7 @@ async function rebuildPositions(ctx: AptosContext, vault: MIVVault, timestamp: b
         function: `${PKG}::ichi_vault_meridian::get_all_position_info`,
         functionArguments: [vault.id.toString(), i],
       },
+      options: { ledgerVersion: ctx.version },
     })) as [
       string | number,
       string | number,

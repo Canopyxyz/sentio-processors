@@ -57,32 +57,85 @@ export function mockHttpEndpoints(): Record<string, string> {
  *
  * `response` is the JSON the view call should return — always an array, since
  * Move view functions return tuples.
+ *
+ * `ledgerVersion`, if set, additionally asserts that the request's
+ * `?ledger_version=` query parameter matches. Useful for catching regressions
+ * where the processor forgets to pin a historical view call.
  */
 export type ViewCallExpectation = {
   function: string;
   typeArguments?: string[];
   functionArguments: unknown[];
   response: unknown[];
+  ledgerVersion?: bigint | number | string;
 };
 
+// Internal: build the nock matcher chain. The Aptos SDK passes
+// options.ledgerVersion as a `?ledger_version=...` query param, so we must use
+// .query(...) — a bare .post("/v1/view") won't match a request with a query
+// string. If the expectation pins a ledger version, assert it; otherwise
+// accept any (or no) query.
+function buildInterceptor(expectation: ViewCallExpectation) {
+  const interceptor = nock(MOCK_RPC_HOST).post("/v1/view", (body) => viewCallMatches(body, expectation));
+  if (expectation.ledgerVersion !== undefined) {
+    return interceptor.query({ ledger_version: String(expectation.ledgerVersion) });
+  }
+  return interceptor.query(true);
+}
+
 /**
- * Install a single view-call interceptor. Persists across multiple invocations
- * within a test (the handler may make the same view call repeatedly).
+ * Install a single one-shot view-call interceptor. Default semantics: the
+ * interceptor matches at most once and is then consumed. For tests that
+ * process multiple events with evolving vault state, this prevents a stale
+ * interceptor from one event silently satisfying a later event's view call.
+ *
+ * For repeated calls within the SAME event handler (e.g. rebuildPositions
+ * loops over get_all_position_info), install one interceptor per expected
+ * call — either by calling mockViewCall multiple times or via
+ * mockViewCallSequence (which is just sugar for that).
+ *
+ * For genuinely stable values that are called many times (e.g. a token's
+ * decimals across an entire test run), use mockViewCallPersistent.
  *
  * Call resetMockRpc() in afterEach to clear all interceptors between tests.
  */
 export function mockViewCall(expectation: ViewCallExpectation): nock.Scope {
-  return nock(MOCK_RPC_HOST)
-    .persist()
-    .post("/v1/view", (body) => viewCallMatches(body, expectation))
-    .reply(200, expectation.response);
+  return buildInterceptor(expectation).reply(200, expectation.response);
 }
 
 /**
- * Convenience: install many view-call interceptors at once.
+ * Install a long-lived interceptor that keeps matching the same view call
+ * indefinitely. Use sparingly — only for values that are truly stable for the
+ * entire test (e.g. token decimals).
+ */
+export function mockViewCallPersistent(expectation: ViewCallExpectation): nock.Scope {
+  return buildInterceptor(expectation).reply(200, expectation.response).persist();
+}
+
+/**
+ * Convenience: install many one-shot view-call interceptors at once. Order
+ * matters when multiple interceptors share the same matcher (queues in FIFO).
  */
 export function mockViewCalls(expectations: ViewCallExpectation[]): nock.Scope[] {
   return expectations.map(mockViewCall);
+}
+
+/**
+ * Install a queue of one-shot interceptors for the same view call, each
+ * returning the next response in the sequence. Useful when one handler invokes
+ * the same view multiple times with different expected responses (e.g. a loop
+ * over get_all_position_info for each position index — though that varies the
+ * functionArguments, so installing distinct expectations via mockViewCalls is
+ * usually clearer).
+ *
+ * The matcher fields (function/typeArguments/functionArguments/ledgerVersion)
+ * come from `base`; only `response` cycles through `responses`.
+ */
+export function mockViewCallSequence(
+  base: Omit<ViewCallExpectation, "response">,
+  responses: unknown[][],
+): nock.Scope[] {
+  return responses.map((response) => mockViewCall({ ...base, response }));
 }
 
 /**

@@ -236,11 +236,16 @@ function annualizedFeeAprU18(
   // where fps_u18 is the tokenToU18 of (fps / FEE_RATE_SCALE). To avoid
   // intermediate truncation we keep FEE_RATE_SCALE in the numerator and divide
   // it out at the end.
+  //
+  // APR target representation: U18-scaled percent (so 5% is 5e18).
+  // Algebra:
+  //   apr_pct_u18 = (valuePerSecondU18 / tvlU18) * U18 * SECONDS_PER_YEAR * 100
+  //              = (valuePerSecondScaledU18 * U18 * SECONDS_PER_YEAR * 100)
+  //                / (tvlU18 * FEE_RATE_SCALE)
   const fps0U18 = tokenToU18(feePerSecond0, decimals0);
   const fps1U18 = tokenToU18(feePerSecond1, decimals1);
   const valuePerSecondScaledU18 = (fps0U18 * priceU18) / U18 + fps1U18; // scaled by FEE_RATE_SCALE
-  // APR = (valuePerSecond / tvl) * secondsPerYear * 100
-  return (valuePerSecondScaledU18 * SECONDS_PER_YEAR * HUNDRED_U18) / tvlU18 / FEE_RATE_SCALE / U18;
+  return (valuePerSecondScaledU18 * SECONDS_PER_YEAR * HUNDRED_U18) / tvlU18 / FEE_RATE_SCALE;
 }
 
 type WindowFields = {

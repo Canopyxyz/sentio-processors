@@ -6,6 +6,7 @@
 
 import { HandlerIdMapping } from "../../utils/processor.js";
 import { ichi_vault_meridian_abi } from "../../../abis/ichi_vault_meridian.js";
+import { timelocked_abi } from "../../../abis/timelocked.js";
 
 export const ICHI_VAULT_MERIDIAN_PACKAGE = "0x96cfeae5e78eeb1b6215bb83ed9023106e0df49e6d4380783e0e40aa8e771f83";
 
@@ -19,12 +20,48 @@ export const FIXTURE_VAULT_OWNER = "0x000000000000000000000000000000000000000000
 export const FIXTURE_DEPOSITOR = "0x000000000000000000000000000000000000000000000000000000000000b002";
 export const FIXTURE_REBALANCER = "0x000000000000000000000000000000000000000000000000000000000000b003";
 
-// Handler ID mapping must match the order the meridianIchiVaultsProcessor
-// registers its handlers. Fill this out as Phase 4 wires each handler.
+// Handler ID mapping for the ichi_vault_meridian base processor. Order must
+// match the .onEvent... chain in src/processors/meridian-ichi-vault-processor.ts
+// — Sentio assigns IDs sequentially in declaration order, starting from 0.
 //
-// Sentio assigns handler IDs sequentially in declaration order, starting from
-// 0. When adding a new handler, append it to BOTH the processor binding chain
-// AND this map.
+// When adding/removing/reordering handlers there, update this map in lockstep.
 export const meridianIchiVaultsHandlerIds: HandlerIdMapping<typeof ichi_vault_meridian_abi> = {
-  // populated in Phase 4
+  VaultCreatedEvent: 0,
+  DepositEvent: 1,
+  WithdrawEvent: 2,
+  CollectFeesEvent: 3,
+  RebalanceEvent: 4,
+  PositionAddedEvent: 5,
+  EmergencyExitEvent: 6,
+  AssetRecoveredEvent: 7,
+  SetStakingPoolEvent: 8,
+  WhitelistedRewardTokenAddedEvent: 9,
+  WhitelistedRewardTokenRemovedEvent: 10,
+  VaultOwnershipTransferInitiatedEvent: 11,
+  VaultOwnershipTransferredEvent: 12,
+  SetAmmFeeRecipientEvent: 13,
+  SetAffiliateEvent: 14,
+  SetMaxDepositAmountEvent: 15,
+  SetDepositRoleEvent: 16,
+  SetRebalancerRoleEvent: 17,
+  RebalancePausedEvent: 18,
+  FarmingEnabledEvent: 19,
+  GlobalOwnershipTransferInitiatedEvent: 20,
+  GlobalOwnershipTransferredEvent: 21,
+  SetBaseFeeEvent: 22,
+  SetBaseSplitFeeEvent: 23,
+  SetFeeRecipientEvent: 24,
+  SetAmmFeeEvent: 25,
+};
+
+// Handler ID mapping for the timelocked base processor (bound separately in
+// the same processor module, AFTER the vault binding).
+//
+// Sentio assigns handler IDs per-chain, not per-binding (see
+// @sentio/sdk/src/core/handler-register.ts — entries are keyed by chainId, id
+// = entries.length). Both bindings target movement-mainnet, so the timelocked
+// handlers pick up where the vault handlers left off — IDs 26 and 27.
+export const meridianTimelockedHandlerIds: HandlerIdMapping<typeof timelocked_abi> = {
+  TimelockedUpdateProposedEvent: 26,
+  TimelockedUpdateExecutedEvent: 27,
 };

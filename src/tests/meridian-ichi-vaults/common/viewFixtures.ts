@@ -13,23 +13,56 @@ const FA = "0x1::fungible_asset";
 const MOD = `${ICHI_VAULT_MERIDIAN_PACKAGE}::ichi_vault_meridian`;
 
 /**
- * View calls a VaultCreatedEvent handler issues to resolve token metadata + decimals
- * for the new vault.
+ * View calls a VaultCreatedEvent handler issues to resolve token metadata,
+ * decimals, and the initial on-chain vault config.
+ *
+ * `vaultOwner` is required — affiliate defaults to it per vault.move:367
+ * (the Move source initializes affiliate to the vault owner, not 0x0).
  */
 export function vaultCreationViewCalls(params: {
   vaultAddress: string;
+  vaultOwner: string;
   // Returned by get_vault_deposit_and_quote_assets. Map to token0/token1 based
   // on is_asset_0_deposit in the test setup.
   depositAssetMetadata: string;
   quoteAssetMetadata: string;
   depositAssetDecimals: number;
   quoteAssetDecimals: number;
+  // Initial VaultConfig values. Default to the Move defaults from vault.move
+  // if omitted.
+  ammFeeRecipient?: string;
+  affiliate?: string;
+  maxDepositAmount?: bigint;
+  depositHysteresisTicks?: bigint;
+  rebalanceHysteresisTicks?: bigint;
+  depositTwapPeriod?: bigint;
+  auxDepositTwapPeriod?: bigint;
+  withdrawFeeBps?: bigint;
+  rebalanceCooldown?: bigint;
+  isRebalancePaused?: boolean;
+  isFarmingEnabled?: boolean;
 }): ViewCallExpectation[] {
+  // Move source defaults (vault.move:367 and the DEFAULT_* constants).
+  const ammFeeRecipient = params.ammFeeRecipient ?? "0x0";
+  const affiliate = params.affiliate ?? params.vaultOwner;
+  const maxDepositAmount = params.maxDepositAmount ?? 0n;
+  const depositHysteresisTicks = params.depositHysteresisTicks ?? 100n;
+  const rebalanceHysteresisTicks = params.rebalanceHysteresisTicks ?? 500n;
+  const depositTwapPeriod = params.depositTwapPeriod ?? 300n;
+  const auxDepositTwapPeriod = params.auxDepositTwapPeriod ?? 60n;
+  const withdrawFeeBps = params.withdrawFeeBps ?? 0n;
+  const rebalanceCooldown = params.rebalanceCooldown ?? 120n;
+  const isRebalancePaused = params.isRebalancePaused ?? false;
+  const isFarmingEnabled = params.isFarmingEnabled ?? true;
+
   return [
     {
       function: `${MOD}::get_vault_deposit_and_quote_assets`,
       functionArguments: [params.vaultAddress],
-      response: [{ inner: params.depositAssetMetadata }, { inner: params.quoteAssetMetadata }],
+      // Move's Object<T> serializes as a bare address string on the REST view
+      // response, not { inner: address }. The processor casts these as string
+      // and lowercases them.
+      response: [params.depositAssetMetadata, params.quoteAssetMetadata],
     },
     {
       function: `${FA}::decimals`,
@@ -42,6 +75,27 @@ export function vaultCreationViewCalls(params: {
       typeArguments: [`${FA}::Metadata`],
       functionArguments: [params.quoteAssetMetadata],
       response: [params.quoteAssetDecimals],
+    },
+    {
+      function: `${MOD}::get_vault_config`,
+      functionArguments: [params.vaultAddress],
+      response: [
+        ammFeeRecipient,
+        affiliate,
+        maxDepositAmount.toString(),
+        depositHysteresisTicks.toString(),
+        rebalanceHysteresisTicks.toString(),
+        depositTwapPeriod.toString(),
+        auxDepositTwapPeriod.toString(),
+        withdrawFeeBps.toString(),
+        rebalanceCooldown.toString(),
+        isRebalancePaused,
+      ],
+    },
+    {
+      function: `${MOD}::is_farming_enabled`,
+      functionArguments: [params.vaultAddress],
+      response: [isFarmingEnabled],
     },
   ];
 }
@@ -127,7 +181,8 @@ export function positionsViewCalls(params: {
       response: [
         p.amount0.toString(),
         p.amount1.toString(),
-        { inner: p.positionObject },
+        // Object<Token> serializes as a bare address string, not { inner }.
+        p.positionObject,
         p.positionId.toString(),
         p.liquidity.toString(),
         p.lowerTick < 0n,
