@@ -14,3 +14,6 @@ contracts:
   - chain: aptos_movement_mainnet
     address: "0x113a1769acc5ce21b5ece6f9533eef6dd34c758911fa5235124c87ff1298633b"
     name: multi_rewards
+  - chain: aptos_movement_mainnet
+    address: "0x96cfeae5e78eeb1b6215bb83ed9023106e0df49e6d4380783e0e40aa8e771f83"
+    name: ichi_vault_meridian
