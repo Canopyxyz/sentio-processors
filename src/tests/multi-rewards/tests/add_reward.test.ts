@@ -1,6 +1,7 @@
 import { afterEach, before, describe, test } from "node:test";
 import assert from "assert";
 import { TestProcessorServer } from "@sentio/sdk/testing";
+import { AptosChainId } from "@sentio/chain";
 
 import { MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
 import { multi_rewards_abi } from "../../../abis/multi_rewards-testnet.js";
@@ -11,7 +12,7 @@ import { verifyRewardState } from "../common/helpers.js";
 
 describe("Add Reward", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
-  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
+  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service, AptosChainId.APTOS_TESTNET);
 
   before(async () => {
     await service.start();

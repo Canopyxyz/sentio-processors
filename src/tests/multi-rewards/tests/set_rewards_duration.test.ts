@@ -2,6 +2,7 @@
 import assert from "assert";
 import { before, afterEach, describe, test } from "node:test";
 import { TestProcessorServer } from "@sentio/sdk/testing";
+import { AptosChainId } from "@sentio/chain";
 
 import { MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
 import { multi_rewards_abi } from "../../../abis/multi_rewards-testnet.js";
@@ -23,7 +24,7 @@ import { assertApproxEqualBigInt } from "../../common/assertions.js";
 
 describe("Set Rewards Duration", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
-  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
+  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service, AptosChainId.APTOS_TESTNET);
 
   // Constants from the Move tests
   const INITIAL_REWARD_DURATION = 86400n; // 1 day in seconds

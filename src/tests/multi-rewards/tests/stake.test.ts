@@ -1,6 +1,7 @@
 import assert from "assert";
 import { before, afterEach, describe, test } from "node:test";
 import { TestProcessorServer } from "@sentio/sdk/testing";
+import { AptosChainId } from "@sentio/chain";
 
 import { MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
 import { multi_rewards_abi } from "../../../abis/multi_rewards-testnet.js";
@@ -11,7 +12,7 @@ import { verifyStakeEvent, verifyUserState, verifyPoolState, verifyRewardState }
 
 describe("Stake", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
-  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
+  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service, AptosChainId.APTOS_TESTNET);
 
   // const INITIAL_BALANCE = 1_000_000n;
   const STAKE_AMOUNT = 100_000n;

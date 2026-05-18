@@ -27,7 +27,11 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
     private abi: TABI,
     private handlerIds: HandlerIdMapping<TABI>,
     private service: TestProcessorServer,
-    private chainId: AptosChainId = AptosChainId.APTOS_TESTNET,
+    // Required: must match the chain that the processor under test is bound to
+    // (e.g. AptosChainId.APTOS_TESTNET for multi-rewards, APTOS_MOVEMENT_MAINNET
+    // for Meridian). DataBinding.chainId is now used for handler dispatch; a
+    // mismatch silently routes events to the wrong (or no) handler.
+    private chainId: AptosChainId,
   ) {}
 
   async processEvent<TEventName extends EventName<TABI>>(params: {

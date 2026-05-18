@@ -87,6 +87,12 @@ async function generateAbiTypes() {
   const inputRoot = path.join(process.cwd(), "abis", "aptos");
   const outputDir = path.join(process.cwd(), "src", "abis");
 
+  // Clean the output directory before regenerating so stale .ts files (e.g.
+  // from a renamed-then-removed JSON in an earlier gen) don't silently linger
+  // and shadow what the current generator would emit. src/abis is gitignored,
+  // so leftovers can mask import paths that work locally but break on a fresh
+  // checkout.
+  await fs.rm(outputDir, { recursive: true, force: true });
   await fs.mkdir(outputDir, { recursive: true });
 
   const allJsonPaths = await findJsonFilesRecursive(inputRoot);
