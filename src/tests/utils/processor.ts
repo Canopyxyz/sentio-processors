@@ -12,6 +12,13 @@ export type HandlerIdMapping<TABI extends ABIRoot> = {
   [K in EventName<TABI>]?: number;
 };
 
+// Discriminated union over all events in TABI so processTransaction can accept a
+// heterogeneous list (e.g. multiple PositionAddedEvents followed by a RebalanceEvent)
+// while still type-checking each `data` against its event's field shape.
+export type TestEvent<TABITable extends ABITable, TABI extends ABIRoot> = {
+  [K in EventName<TABI>]: { name: K; data: EventFields<TABITable, TABI, K> };
+}[EventName<TABI>];
+
 export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI extends ABIRoot = ABIRoot> {
   private versionCounter = 0n;
   private latestTimestampMicros = 0n; // in microseconds
@@ -29,51 +36,75 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
     timestamp?: bigint;
     version?: bigint;
   }): Promise<ProcessBindingResponse> {
-    // 1. Validate event exists in ABI
-    const event = this.abi.structs.find((s) => s.is_event && s.name === params.name);
-    if (!event) {
-      throw new Error(`Event ${params.name} not found in ABI`);
-    }
-
-    // 2. Build APT event with proper metadata
-    const aptEvent = this.buildEvent(params);
-
-    // 3. Create binding for TestProcessorServer
-    const binding = this.createBinding(aptEvent);
-
-    // 4. Process the binding
-    return await this.service.processBinding(binding);
+    const [response] = await this.processTransaction({
+      timestamp: params.timestamp,
+      version: params.version,
+      events: [{ name: params.name, data: params.data }],
+    });
+    return response;
   }
 
-  private buildEvent<TEventName extends EventName<TABI>>(params: {
-    name: TEventName;
-    data: EventFields<TABITable, TABI, TEventName>;
+  async processTransaction(params: {
     timestamp?: bigint;
     version?: bigint;
-  }) {
-    this.versionCounter++;
-    this.latestTimestampMicros = params.timestamp || this.latestTimestampMicros;
+    events: Array<TestEvent<TABITable, TABI>>;
+  }): Promise<ProcessBindingResponse[]> {
+    if (params.events.length === 0) {
+      throw new Error("processTransaction requires at least one event");
+    }
 
+    // Validate all events exist in the ABI before doing any work
+    for (const e of params.events) {
+      const struct = this.abi.structs.find((s) => s.is_event && s.name === e.name);
+      if (!struct) {
+        throw new Error(`Event ${e.name} not found in ABI`);
+      }
+    }
+
+    // All events in a single tx share one version + timestamp
+    this.versionCounter++;
+    const version = params.version ?? this.versionCounter;
+    this.latestTimestampMicros = params.timestamp ?? this.latestTimestampMicros;
+
+    // Build all event objects up-front so rawTransaction.events can include every one
+    const builtEvents = params.events.map((e, idx) =>
+      this.buildEventAtIndex({ name: e.name, data: e.data, version, eventIndex: idx }),
+    );
+
+    const rawTransaction = JSON.stringify({
+      version,
+      timestamp: this.latestTimestampMicros,
+      events: builtEvents,
+    });
+
+    // Process each event as its own binding (one handler invocation per event)
+    const responses: ProcessBindingResponse[] = [];
+    for (const [idx, event] of builtEvents.entries()) {
+      const binding = this.createBinding(event, idx, rawTransaction);
+      responses.push(await this.service.processBinding(binding));
+    }
+    return responses;
+  }
+
+  private buildEventAtIndex(params: { name: EventName<TABI>; data: unknown; version: bigint; eventIndex: number }) {
     return {
       guid: {
+        // creation_number uniquely identifies the event stream; pair with index to differentiate within a tx
         creation_number: this.versionCounter,
         account_address: this.abi.address,
       },
-      sequence_number: this.versionCounter,
+      sequence_number: BigInt(params.eventIndex),
       type: `${this.abi.address}::${this.abi.name}::${params.name}`,
-      version: params.version ?? this.versionCounter,
-      data: params.data, // Type-safe from EventFields
+      version: params.version,
+      data: params.data,
     };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private createBinding(event: any): DataBinding {
-    // Get the event name from the fully qualified type
+  private createBinding(event: any, eventIndex: number, rawTransaction: string): DataBinding {
     const eventName = event.type.split("::").pop() as EventName<TABI>;
 
-    // Get the corresponding handler ID
     const handlerId = this.handlerIds[eventName];
-
     if (handlerId === undefined) {
       throw new Error(`handlerId for event ${eventName} is not specified in handlerIds`);
     }
@@ -82,15 +113,11 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
       data: {
         aptEvent: {
           rawEvent: JSON.stringify(event),
-          eventIndex: 0,
-          rawTransaction: JSON.stringify({
-            version: event.version,
-            timestamp: this.latestTimestampMicros,
-            events: [event],
-          }),
+          eventIndex,
+          rawTransaction,
         },
       },
-      handlerIds: [handlerId], // Now we use the mapped handler ID
+      handlerIds: [handlerId],
       handlerType: HandlerType.APT_EVENT,
       chainId: this.chainId,
     };
