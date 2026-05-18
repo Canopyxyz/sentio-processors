@@ -113,7 +113,7 @@ async function handleVaultCreated(
   const timestamp = micros2secs(ctx.getTimestamp());
 
   const client = ctx.getClient();
-  const [depositMetaRaw, quoteMetaRaw] = (await client.view({
+  const [depositMetaRaw, quoteMetaRaw] = (await client.viewJson({
     payload: {
       function: `${PKG}::ichi_vault_meridian::get_vault_deposit_and_quote_assets`,
       functionArguments: [vaultAddress],
@@ -132,14 +132,14 @@ async function handleVaultCreated(
   // the Move defaults. Keeps us correct even if the contract changes its
   // defaults, and avoids drift if a setter event fires before our first read.
   const [vaultConfigRaw, farmingEnabledRaw] = (await Promise.all([
-    client.view({
+    client.viewJson({
       payload: {
         function: `${PKG}::ichi_vault_meridian::get_vault_config`,
         functionArguments: [vaultAddress],
       },
       options: { ledgerVersion: ctx.version },
     }),
-    client.view({
+    client.viewJson({
       payload: {
         function: `${PKG}::ichi_vault_meridian::is_farming_enabled`,
         functionArguments: [vaultAddress],
@@ -1088,28 +1088,28 @@ async function fetchVaultLiveState(
   const client = ctx.getClient();
 
   const [holdings, ticks, sharePrice, supplyRes] = await Promise.all([
-    client.view({
+    client.viewJson({
       payload: {
         function: `${PKG}::ichi_vault_meridian::get_total_vault_holdings`,
         functionArguments: [vaultAddress],
       },
       options: { ledgerVersion: ctx.version },
     }),
-    client.view({
+    client.viewJson({
       payload: {
         function: `${PKG}::ichi_vault_meridian::get_all_valuation_ticks_raw`,
         functionArguments: [vaultAddress],
       },
       options: { ledgerVersion: ctx.version },
     }),
-    client.view({
+    client.viewJson({
       payload: {
         function: `${PKG}::ichi_vault_meridian::get_shares_price_e18`,
         functionArguments: [vaultAddress],
       },
       options: { ledgerVersion: ctx.version },
     }),
-    client.view({
+    client.viewJson({
       payload: {
         function: "0x1::fungible_asset::supply",
         typeArguments: ["0x1::fungible_asset::Metadata"],
@@ -1158,7 +1158,7 @@ function applyLiveState(vault: MIVVault, live: LiveState, timestamp: bigint): vo
 }
 
 async function fetchFaDecimals(ctx: AptosContext, metadata: string): Promise<number> {
-  const res = (await ctx.getClient().view({
+  const res = (await ctx.getClient().viewJson({
     payload: {
       function: "0x1::fungible_asset::decimals",
       typeArguments: ["0x1::fungible_asset::Metadata"],
@@ -1177,7 +1177,7 @@ async function rebuildPositions(ctx: AptosContext, vault: MIVVault, timestamp: b
   }
 
   const client = ctx.getClient();
-  const [countRaw] = (await client.view({
+  const [countRaw] = (await client.viewJson({
     payload: {
       function: `${PKG}::ichi_vault_meridian::get_position_count`,
       functionArguments: [vault.id.toString()],
@@ -1187,7 +1187,7 @@ async function rebuildPositions(ctx: AptosContext, vault: MIVVault, timestamp: b
   const count = Number(countRaw);
 
   for (let i = 0; i < count; i++) {
-    const info = (await client.view({
+    const info = (await client.viewJson({
       payload: {
         function: `${PKG}::ichi_vault_meridian::get_all_position_info`,
         functionArguments: [vault.id.toString(), i],

@@ -139,6 +139,24 @@ export function mockViewCallSequence(
 }
 
 /**
+ * Install a persistent interceptor for `GET /v1/accounts/<pkg>/module/<name>`,
+ * returning the given { bytecode, abi } object. The Aptos SDK fetches module
+ * ABIs automatically before serializing view-call args + deserializing
+ * responses; without this mock the test will error with
+ * "Nock: No match for request" on the module-fetch GET.
+ *
+ * Pass the single-module object (not the array) — our vendored
+ * abis/aptos/<chain>/<module>.json files contain an array of [{ bytecode,
+ * abi }], take the matching entry.
+ */
+export function mockAptosModuleAbi(packageAddress: string, moduleName: string, abiEntry: object): nock.Scope {
+  return nock(MOCK_RPC_HOST)
+    .persist()
+    .get(`/v1/accounts/${packageAddress}/module/${moduleName}`)
+    .reply(200, abiEntry as nock.Body);
+}
+
+/**
  * Clears all nock interceptors and re-enables network connections for any
  * non-mocked hosts. Call in afterEach.
  */
