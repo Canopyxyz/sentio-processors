@@ -53,9 +53,22 @@ interface AbiEntry {
   abi: ABIRoot;
 }
 
-// Walks abis/aptos/ recursively and emits one src/abis/<basename>.ts per .json file.
-// If two .json files in different chain dirs share a basename, the codegen errors
-// out so the developer can rename one to disambiguate.
+// Walks abis/aptos/<chain>/*.json (any chain subdirectory) and emits one
+// src/abis/<name>.ts per JSON file.
+//
+// Two behaviors worth noting:
+//
+//  - Files named 0x<hex>.json are skipped. Sentio CLI downloads dependent module
+//    ABIs into the same chain subdirectory when codegen needs them (e.g. CLMM
+//    helpers referenced by ichi_vault_meridian). We don't bind those in our
+//    processors, so we don't need TestProcessor-compatible exports for them.
+//
+//  - When two JSONs in different chain subdirs share a basename (e.g.
+//    multi_rewards.json exists in both testnet and movement-mainnet), the first
+//    one in sorted-path order keeps the bare basename so existing imports of
+//    src/abis/multi_rewards.js (the testnet flavor) keep working, and the
+//    second is automatically renamed to <name>-<chain-dir>.ts. This works even
+//    when Sentio CLI re-downloads the file under its default name on each gen.
 async function findJsonFilesRecursive(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const results: string[] = [];
@@ -76,28 +89,31 @@ async function generateAbiTypes() {
 
   await fs.mkdir(outputDir, { recursive: true });
 
-  const jsonPaths = await findJsonFilesRecursive(inputRoot);
+  const allJsonPaths = await findJsonFilesRecursive(inputRoot);
 
-  // Detect basename collisions so we don't silently clobber one chain's ABI
-  // with another's.
-  const seenByBasename = new Map<string, string>();
-  for (const jsonPath of jsonPaths) {
-    const basename = path.basename(jsonPath);
-    const previous = seenByBasename.get(basename);
-    if (previous) {
-      const outName = basename.replace(".json", ".ts");
-      throw new Error(
-        `ABI filename collision: ${previous} and ${jsonPath} would both emit src/abis/${outName}. ` +
-          "Rename one to disambiguate (e.g. multi_rewards-movement-mainnet.json).",
-      );
-    }
-    seenByBasename.set(basename, jsonPath);
-  }
+  // Skip dependent-module ABIs that Sentio CLI downloads automatically.
+  const jsonPaths = allJsonPaths.filter((p) => !/^0x[0-9a-f]+\.json$/i.test(path.basename(p))).sort();
 
+  // Deterministic disambiguation: first occurrence wins the bare basename;
+  // later collisions get suffixed with their parent directory (chain) name.
+  const usedOutputNames = new Set<string>();
   for (const inputPath of jsonPaths) {
     const basename = path.basename(inputPath);
-    const outputPath = path.join(outputDir, basename.replace(".json", ".ts"));
+    const stem = basename.replace(/\.json$/, "");
+    let outStem = stem;
+    if (usedOutputNames.has(outStem)) {
+      const chainDir = path.basename(path.dirname(inputPath));
+      outStem = `${stem}-${chainDir}`;
+      if (usedOutputNames.has(outStem)) {
+        throw new Error(
+          `ABI filename collision could not be auto-resolved for ${inputPath} ` +
+            `(would emit ${outStem}.ts which is already taken)`,
+        );
+      }
+    }
+    usedOutputNames.add(outStem);
 
+    const outputPath = path.join(outputDir, `${outStem}.ts`);
     const jsonContent = await fs.readFile(inputPath, "utf-8");
     const abiEntries: AbiEntry[] = JSON.parse(jsonContent);
 
