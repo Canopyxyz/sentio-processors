@@ -50,10 +50,13 @@ export function mockHttpEndpoints(): Record<string, string> {
  * `function` is the fully-qualified function name (e.g.
  * "0x96cf...::ichi_vault_meridian::get_total_vault_holdings").
  *
- * `functionArguments` are the positional args the handler will pass. Sentio's
- * Aptos client serializes bigint / number / boolean as strings on the wire, so
- * pass values in whatever form is natural — the matcher String()s them before
- * comparing.
+ * `functionArguments` are the positional args the handler will pass.
+ * **The matcher is strict** — fixtures must mirror the exact on-wire JSON
+ * shape that the Aptos REST API expects. In particular, u64/u128/u256 args
+ * MUST be passed as strings (the REST API rejects them as numbers with
+ * "expect string<u64>, got number"). bools stay as booleans; addresses
+ * stay as `"0x..."` strings. This catches a class of bugs where the
+ * processor accidentally sends a JS number for a u64.
  *
  * `response` is the JSON the view call should return — always an array, since
  * Move view functions return tuples.
@@ -191,19 +194,17 @@ function viewCallMatches(body: unknown, e: ViewCallExpectation): boolean {
 
   const expectedTypeArgs = e.typeArguments ?? [];
   const actualTypeArgs = b.type_arguments ?? [];
-  if (!shallowStringEqual(actualTypeArgs, expectedTypeArgs)) return false;
+  // Type args are always strings on the wire (Move type tags), so deep equal
+  // via JSON.stringify is sufficient and strict.
+  if (JSON.stringify(actualTypeArgs) !== JSON.stringify(expectedTypeArgs)) return false;
 
   const actualArgs = b.arguments ?? [];
-  // Sentio's Aptos client stringifies u64/u128 arguments; normalize both sides.
-  if (!shallowStringEqual(actualArgs, e.functionArguments)) return false;
+  // Strict: no String() coercion. Fixtures must mirror exactly what goes on
+  // the wire (e.g. u64/u128 as strings, bools as booleans). This catches the
+  // class of bug where a handler accidentally passes a JS number for a u64
+  // — the real Movement REST API rejects it with "expect string<u64>, got
+  // number", and we should fail the test before that ships.
+  if (JSON.stringify(actualArgs) !== JSON.stringify(e.functionArguments)) return false;
 
-  return true;
-}
-
-function shallowStringEqual(a: readonly unknown[], b: readonly unknown[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (String(a[i]) !== String(b[i])) return false;
-  }
   return true;
 }

@@ -47,9 +47,25 @@ import {
 import { SupportedAptosChainId } from "../chains.js";
 import { priceU18FromTick, updateVaultFeeMetrics } from "../utils/meridian-math.js";
 
-// Note: Object<T> in Move is generated as a bare MoveAddressType (string) on
-// the JS side — there is no { inner: string } wrapper. Same for primitive
-// `address` fields. So we treat both the same way.
+// Note: Move's Object<T> arrives in two different shapes depending on the
+// code path, and the difference is load-bearing:
+//
+//   - event.data_decoded fields:  bare address string. The Sentio runtime's
+//                                 MoveCoder unwraps Object<T>.{inner} before
+//                                 handlers see it, so we just treat the field
+//                                 the same as a primitive `address`.
+//
+//   - viewJson() responses:       { inner: address } object. viewJson returns
+//                                 raw REST-API JSON straight from the chain
+//                                 with no decoder unwrapping — Move's
+//                                 0x1::object::Object struct serializes per
+//                                 its actual shape. Call sites must read
+//                                 `.inner` before passing to lower(), etc.
+//                                 (The older BCS-encoded view() did decode
+//                                 to bare strings, but we use viewJson for
+//                                 nock-mockability.)
+//
+// Primitive `address` fields are bare strings in both paths.
 
 export const PKG = "0x96cfeae5e78eeb1b6215bb83ed9023106e0df49e6d4380783e0e40aa8e771f83";
 
@@ -113,16 +129,18 @@ async function handleVaultCreated(
   const timestamp = micros2secs(ctx.getTimestamp());
 
   const client = ctx.getClient();
+  // viewJson returns Move's Object<T> as { inner: address } (raw REST-API JSON
+  // — no decoder unwrapping, unlike event.data_decoded which DOES unwrap).
   const [depositMetaRaw, quoteMetaRaw] = (await client.viewJson({
     payload: {
       function: `${PKG}::ichi_vault_meridian::get_vault_deposit_and_quote_assets`,
       functionArguments: [vaultAddress],
     },
     options: { ledgerVersion: ctx.version },
-  })) as [string, string];
+  })) as [{ inner: string }, { inner: string }];
 
-  const depositMeta = lower(depositMetaRaw);
-  const quoteMeta = lower(quoteMetaRaw);
+  const depositMeta = lower(depositMetaRaw.inner);
+  const quoteMeta = lower(quoteMetaRaw.inner);
   const [depositDecimals, quoteDecimals] = await Promise.all([
     fetchFaDecimals(ctx, depositMeta),
     fetchFaDecimals(ctx, quoteMeta),
@@ -1206,16 +1224,23 @@ async function rebuildPositions(ctx: AptosContext, vault: MIVVault, timestamp: b
   const count = Number(countRaw);
 
   for (let i = 0; i < count; i++) {
+    // get_all_position_info returns:
+    //   (amount_0:u64, amount_1:u64, position:Object<Token>, position_id:u64,
+    //    liquidity:u64, is_neg_lower:bool, abs_lower:u64, is_neg_upper:bool, abs_upper:u64)
+    // Object<T> arrives as { inner: address } from viewJson (raw REST JSON).
     const info = (await client.viewJson({
       payload: {
         function: `${PKG}::ichi_vault_meridian::get_all_position_info`,
-        functionArguments: [vault.id.toString(), i],
+        // Movement REST API requires u64 args as JSON strings (JS numbers
+        // can't safely hold the full u64 range). Passing `i` directly as a
+        // number gets rejected with "expect string<u64>, got number".
+        functionArguments: [vault.id.toString(), i.toString()],
       },
       options: { ledgerVersion: ctx.version },
     })) as [
       string | number,
       string | number,
-      string,
+      { inner: string },
       string | number,
       string | number,
       boolean,
@@ -1229,7 +1254,7 @@ async function rebuildPositions(ctx: AptosContext, vault: MIVVault, timestamp: b
         id: `${vault.id.toString()}-${i}`,
         vaultID: vault.id,
         index: i,
-        position_object: lower(positionObj),
+        position_object: lower(positionObj.inner),
         position_id: BigInt(positionId),
         liquidity: BigInt(liquidity),
         lower_tick: lowerNeg ? -BigInt(lowerAbs) : BigInt(lowerAbs),

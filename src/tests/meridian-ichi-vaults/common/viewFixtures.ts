@@ -59,10 +59,11 @@ export function vaultCreationViewCalls(params: {
     {
       function: `${MOD}::get_vault_deposit_and_quote_assets`,
       functionArguments: [params.vaultAddress],
-      // Move's Object<T> serializes as a bare address string on the REST view
-      // response, not { inner: address }. The processor casts these as string
-      // and lowercases them.
-      response: [params.depositAssetMetadata, params.quoteAssetMetadata],
+      // viewJson returns Move's Object<T> as { inner: address } — this is the
+      // raw REST-API JSON shape, no decoder unwrapping. (Event.data_decoded
+      // DOES unwrap, but view responses do not — they're handled in
+      // different code paths.)
+      response: [{ inner: params.depositAssetMetadata }, { inner: params.quoteAssetMetadata }],
     },
     {
       function: `${FA}::decimals`,
@@ -208,12 +209,14 @@ export function positionsViewCalls(params: {
     //       is_neg_lower, abs_lower, is_neg_upper, abs_upper)
     calls.push({
       function: `${MOD}::get_all_position_info`,
-      functionArguments: [params.vaultAddress, i],
+      // u64 args go on the wire as strings (Movement REST is strict about
+      // this; see meridian-ichi-vault-processor.ts:get_all_position_info call).
+      functionArguments: [params.vaultAddress, i.toString()],
       response: [
         p.amount0.toString(),
         p.amount1.toString(),
-        // Object<Token> serializes as a bare address string, not { inner }.
-        p.positionObject,
+        // Object<Token> from viewJson is { inner: address } (raw REST JSON).
+        { inner: p.positionObject },
         p.positionId.toString(),
         p.liquidity.toString(),
         p.lowerTick < 0n,

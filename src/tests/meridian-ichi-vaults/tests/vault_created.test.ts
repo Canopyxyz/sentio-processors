@@ -125,6 +125,53 @@ describe("VaultCreatedEvent", async () => {
     });
   });
 
+  test("regression: real Movement mainnet VaultCreatedEvent payload (tx 0xbd0f888d... v78848202)", async () => {
+    // Verbatim event from a real on-chain tx that crashed an earlier deploy
+    // because we treated the viewJson Object<T> response as a bare string
+    // instead of { inner: address }. Pin the exact addresses + shapes so a
+    // future regression on either side (processor decoding OR fixture format)
+    // is caught here.
+    const reader = new MIVTestReader(service.store);
+    const VAULT = "0xb95f5033e58c5c4364b30ff400dcc4b4f06c194f978ba2adedb0bd68ef5cdf61";
+    const POOL = "0x611fb190a052cde002eec0ef1d481e0ab4ad930c5d825d774fc061b6d0776aa6";
+    const OWNER = "0x434e1d2ba65e12b43d1b78bd2f7dbeba2ec92126b20c5d347ba55e20f1e804e5";
+    // The real vault uses the vault address itself as the shares-FA metadata
+    // — and one of the underlying tokens is the same address as the pool.
+    const SHARES = VAULT;
+
+    mockViewCalls(
+      vaultCreationViewCalls({
+        vaultAddress: VAULT,
+        vaultOwner: OWNER,
+        depositAssetMetadata: POOL, // placeholder; real value unknown w/o on-chain query
+        quoteAssetMetadata: "0x000000000000000000000000000000000000000000000000000000000000aaaa",
+        depositAssetDecimals: 6,
+        quoteAssetDecimals: 8,
+        maxDepositAmount: 10_000_000_000n,
+      }),
+    );
+
+    await processor.processEvent({
+      name: "VaultCreatedEvent",
+      data: {
+        is_asset_0_deposit: true,
+        max_deposit_amount: "10000000000",
+        underlying_pool: { inner: POOL },
+        vault_address: VAULT,
+        vault_owner: OWNER,
+        vault_shares_metadata: { inner: SHARES },
+      },
+      timestamp: secsToMicros(1_771_251_269),
+    });
+
+    const vault = await reader.getVault(VAULT);
+    assert(vault, "vault should be created without crashing on viewJson Object<T> decoding");
+    assert.strictEqual(vault.vault_address, VAULT);
+    assert.strictEqual(vault.underlying_pool, POOL);
+    assert.strictEqual(vault.vault_owner, OWNER);
+    assert.strictEqual(vault.max_deposit_amount, 10_000_000_000n);
+  });
+
   test("address normalization: mixed-case event payloads are lower-cased in the store", async () => {
     const reader = new MIVTestReader(service.store);
 
