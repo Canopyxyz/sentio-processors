@@ -53,40 +53,62 @@ interface AbiEntry {
   abi: ABIRoot;
 }
 
+// Walks abis/aptos/ recursively and emits one src/abis/<basename>.ts per .json file.
+// If two .json files in different chain dirs share a basename, the codegen errors
+// out so the developer can rename one to disambiguate.
+async function findJsonFilesRecursive(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const results: string[] = [];
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...(await findJsonFilesRecursive(fullPath)));
+    } else if (entry.isFile() && entry.name.endsWith(".json")) {
+      results.push(fullPath);
+    }
+  }
+  return results;
+}
+
 async function generateAbiTypes() {
-  const inputDir = path.join(process.cwd(), "abis", "aptos", "testnet");
+  const inputRoot = path.join(process.cwd(), "abis", "aptos");
   const outputDir = path.join(process.cwd(), "src", "abis");
 
-  // Ensure output directory exists
   await fs.mkdir(outputDir, { recursive: true });
 
-  // Read all JSON files in the input directory
-  const files = await fs.readdir(inputDir);
-  const jsonFiles = files.filter((file) => file.endsWith(".json"));
+  const jsonPaths = await findJsonFilesRecursive(inputRoot);
 
-  for (const jsonFile of jsonFiles) {
-    const inputPath = path.join(inputDir, jsonFile);
-    const outputPath = path.join(outputDir, jsonFile.replace(".json", ".ts"));
+  // Detect basename collisions so we don't silently clobber one chain's ABI
+  // with another's.
+  const seenByBasename = new Map<string, string>();
+  for (const jsonPath of jsonPaths) {
+    const basename = path.basename(jsonPath);
+    const previous = seenByBasename.get(basename);
+    if (previous) {
+      const outName = basename.replace(".json", ".ts");
+      throw new Error(
+        `ABI filename collision: ${previous} and ${jsonPath} would both emit src/abis/${outName}. ` +
+          "Rename one to disambiguate (e.g. multi_rewards-movement-mainnet.json).",
+      );
+    }
+    seenByBasename.set(basename, jsonPath);
+  }
 
-    // Read and parse JSON file
+  for (const inputPath of jsonPaths) {
+    const basename = path.basename(inputPath);
+    const outputPath = path.join(outputDir, basename.replace(".json", ".ts"));
+
     const jsonContent = await fs.readFile(inputPath, "utf-8");
     const abiEntries: AbiEntry[] = JSON.parse(jsonContent);
 
-    // Generate TypeScript content
-    let tsContent = "";
+    let tsContent = "// This file is auto-generated. Do not edit manually.\n\n";
 
-    // Add imports if needed
-    tsContent += "// This file is auto-generated. Do not edit manually.\n\n";
-
-    // Generate exports for each ABI entry
     abiEntries.forEach((entry) => {
       const { abi } = entry;
       const exportName = `${abi.name.replace(/[^a-zA-Z0-9_]/g, "_")}_abi`;
-
       tsContent += `export const ${exportName} = ${JSON.stringify(abi, null, 2)} as const;\n\n`;
     });
 
-    // Write the TypeScript file
     await fs.writeFile(outputPath, tsContent);
     console.log(`Generated ${outputPath}`);
   }
