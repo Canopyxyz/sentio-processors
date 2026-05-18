@@ -2,9 +2,10 @@
 import assert from "assert";
 import { before, afterEach, describe, test } from "node:test";
 import { TestProcessorServer } from "@sentio/sdk/testing";
+import { AptosChainId } from "@sentio/chain";
 
 import { MultiRewardsTestReader } from "../../../processors/multi-rewards-processor.js";
-import { multi_rewards_abi } from "../../../abis/multi_rewards.js";
+import { multi_rewards_abi } from "../../../abis/multi_rewards-testnet.js";
 import { TestProcessor } from "../../utils/processor.js";
 import { multiRewardsHandlerIds } from "../common/constants.js";
 import { generateRandomAddress, secondsToMicros } from "../../common/helpers.js";
@@ -20,7 +21,7 @@ import { MRRewardClaimedEvent, MRUserRewardData } from "../../../schema/schema.r
 
 describe("Unsubscribe", async () => {
   const service = new TestProcessorServer(() => import("../multi-rewards-processor.js"));
-  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service);
+  const processor = new TestProcessor(multi_rewards_abi, multiRewardsHandlerIds, service, AptosChainId.APTOS_TESTNET);
 
   const STAKE_AMOUNT = 100_000n;
   const REWARD_AMOUNT = 1_000_000n;

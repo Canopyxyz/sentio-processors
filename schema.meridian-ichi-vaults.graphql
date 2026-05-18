@@ -1,0 +1,660 @@
+# - - - Global Level Entities - - -
+
+"""
+Top-level Meridian Ichi vaults indexer statistics.
+
+Singleton row (id = "global") that tracks counts across all vaults emitted
+by the ichi_vault_meridian module on a given chain.
+"""
+type MIVModule @entity {
+  id: ID!
+  vault_count: Int!
+  deposit_count: Int!
+  withdraw_count: Int!
+  rebalance_count: Int!
+  collect_fees_count: Int!
+  position_added_count: Int!
+  emergency_exit_count: Int!
+  last_update_timestamp: BigInt!
+}
+
+"""
+Mirror of the on-chain GlobalVaultConfig resource.
+
+Singleton row (id = "global"). Updated on every Set*/GlobalOwnership* event.
+Fee-recipient and ownership rows over time live in their respective event
+entities.
+"""
+type MIVGlobalConfig @entity {
+  id: ID!
+  owner: String! @index
+  pending_owner: String
+  base_fee_bps: BigInt!
+  base_fee_split_bps: BigInt!
+  fee_recipient: String!
+  amm_fee_bps: BigInt!
+  last_update_timestamp: BigInt!
+}
+
+# - - - Per-Vault State - - -
+
+"""
+Current state of a single Meridian Ichi vault.
+
+Refreshed on every state-changing event (Deposit, Withdraw, Rebalance,
+CollectFees, EmergencyExit). Pricing / TVL / supply fields are fetched via
+ichi_vault_meridian view calls on each refresh.
+
+Vault metadata (tokens, decimals, pool, shares-FA) is populated once by the
+VaultCreatedEvent handler. Vault config fields mirror their on-chain values
+and are updated by Set*/Vault* admin events plus the timelocked Execute
+events.
+"""
+type MIVVault @entity {
+  # vault_address (lowercased)
+  id: ID!
+  vault_address: String! @index
+  vault_owner: String! @index
+  pending_owner: String
+  underlying_pool: String! @index
+  is_asset_0_deposit: Boolean!
+
+  # Token metadata (resolved once on VaultCreatedEvent via view calls)
+  token0_metadata: String! @index
+  token1_metadata: String! @index
+  token0_decimals: Int!
+  token1_decimals: Int!
+  vault_shares_metadata: String! @index
+  vault_shares_decimals: Int!
+
+  # Live state, refreshed on every state-changing event.
+  total_amount_0: BigInt!
+  total_amount_1: BigInt!
+  total_supply: BigInt!
+  # Signed ticks: stored as a single BigInt (negative values allowed).
+  last_tick: BigInt!
+  twap_tick: BigInt!
+  aux_twap_tick: BigInt!
+
+  # Pricing
+  # last_price_u18: token0 in token1, derived from last_tick + decimals (U18).
+  last_price_u18: BigInt!
+  # shares_price_e18: authoritative current share price in U18, from
+  # get_shares_price_e18 view.
+  shares_price_e18: BigInt!
+  last_price_timestamp: BigInt!
+
+  # Fee accounting & APR (rolling windows)
+  last_fee_update: BigInt!
+  fee_per_second_0_1d_u18: BigInt!
+  fee_per_second_0_3d_u18: BigInt!
+  fee_per_second_0_7d_u18: BigInt!
+  fee_per_second_0_30d_u18: BigInt!
+  fee_per_second_1_1d_u18: BigInt!
+  fee_per_second_1_3d_u18: BigInt!
+  fee_per_second_1_7d_u18: BigInt!
+  fee_per_second_1_30d_u18: BigInt!
+  fee_apr_1d_u18: BigInt!
+  fee_apr_3d_u18: BigInt!
+  fee_apr_7d_u18: BigInt!
+  fee_apr_30d_u18: BigInt!
+
+  # Cumulative fee totals (raw u64 sums of collected_fees_{0,1} across all
+  # CollectFees + Rebalance + EmergencyExit events).
+  total_fees_0_collected: BigInt!
+  total_fees_1_collected: BigInt!
+
+  # Vault config (mirrored from on-chain VaultConfig)
+  last_rebalanced_at: BigInt!
+  is_rebalance_paused: Boolean!
+  is_farming_enabled: Boolean!
+  withdraw_fee_bps: BigInt!
+  deposit_hysteresis_ticks: BigInt!
+  rebalance_hysteresis_ticks: BigInt!
+  deposit_twap_period: BigInt!
+  aux_deposit_twap_period: BigInt!
+  rebalance_cooldown: BigInt!
+  max_deposit_amount: BigInt!
+  amm_fee_recipient: String!
+  affiliate: String!
+
+  # Farming / staking
+  staking_pool: String
+  whitelisted_reward_tokens: [String!]!
+
+  # Position state (rebuilt on every Rebalance via view calls)
+  position_count: Int!
+  positions: [MIVPosition!]! @derivedFrom(field: "vault")
+
+  # Lifecycle counters
+  deposit_count: Int!
+  withdraw_count: Int!
+  rebalance_count: Int!
+  collect_fees_count: Int!
+
+  created_at_timestamp: BigInt!
+  created_at_tx_version: BigInt!
+}
+
+"""
+A single active liquidity position within a vault.
+
+The Meridian vault holds up to 5 positions at a time. On every
+RebalanceEvent the existing MIVPosition rows for the vault are deleted and
+rebuilt from get_position_count + get_all_position_info view calls.
+"""
+type MIVPosition @entity {
+  # "<vault_address>-<index>"
+  id: ID!
+  vault: MIVVault!
+  index: Int!
+  # The Move Token object address holding the position
+  position_object: String!
+  position_id: BigInt!
+  liquidity: BigInt!
+  lower_tick: BigInt!
+  upper_tick: BigInt!
+  amount_0: BigInt!
+  amount_1: BigInt!
+  last_updated_timestamp: BigInt!
+}
+
+# - - - Time-bucketed History (for APR / chart queries) - - -
+
+"""
+Hourly OHLC snapshot for a vault.
+
+Buckets are keyed by epoch seconds at the start of the hour. Updated by
+every state-changing event whose timestamp falls in the bucket.
+"""
+type MIVVaultHourlyHistory @entity {
+  # "<vault_address>-<date>"
+  id: ID!
+  vault: MIVVault!
+  vault_address: String! @index
+  date: BigInt! @index
+
+  total_amount_0: BigInt!
+  total_amount_1: BigInt!
+  total_supply: BigInt!
+
+  # Delta within this bucket
+  fees_0_delta: BigInt!
+  fees_1_delta: BigInt!
+  # Cumulative-to-date (handy for stitched charts)
+  total_fees_0_collected: BigInt!
+  total_fees_1_collected: BigInt!
+
+  transaction_count: Int!
+
+  # OHLC for spot tick (signed) within the bucket
+  open_tick: BigInt!
+  close_tick: BigInt!
+  low_tick: BigInt!
+  high_tick: BigInt!
+  # OHLC for share price (U18)
+  open_share_price_e18: BigInt!
+  close_share_price_e18: BigInt!
+  low_share_price_e18: BigInt!
+  high_share_price_e18: BigInt!
+}
+
+"""
+Daily OHLC snapshot for a vault. Same shape as MIVVaultHourlyHistory but
+keyed by epoch seconds at the start of the day (UTC midnight).
+"""
+type MIVVaultDailyHistory @entity {
+  # "<vault_address>-<date>"
+  id: ID!
+  vault: MIVVault!
+  vault_address: String! @index
+  date: BigInt! @index
+
+  total_amount_0: BigInt!
+  total_amount_1: BigInt!
+  total_supply: BigInt!
+
+  fees_0_delta: BigInt!
+  fees_1_delta: BigInt!
+  total_fees_0_collected: BigInt!
+  total_fees_1_collected: BigInt!
+
+  transaction_count: Int!
+
+  open_tick: BigInt!
+  close_tick: BigInt!
+  low_tick: BigInt!
+  high_tick: BigInt!
+  open_share_price_e18: BigInt!
+  close_share_price_e18: BigInt!
+  low_share_price_e18: BigInt!
+  high_share_price_e18: BigInt!
+}
+
+# - - - Event Audit-Trail Entities - - -
+#
+# Every event entity shares these fields:
+#   id: "<tx_version>-<event_index>"
+#   transaction_version, event_index, timestamp
+# State-changing events also store the live-state snapshot fetched at
+# event time (tick, total_supply, totals, share_price).
+#
+# These are immutable audit rows — useful for reconstructing history and
+# building dashboards independent of the rolling-state MIVVault entity.
+
+"""Emitted by create_vault."""
+type MIVVaultCreatedEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  vault_owner: String! @index
+  underlying_pool: String! @index
+  is_asset_0_deposit: Boolean!
+  vault_shares_metadata: String!
+  max_deposit_amount: BigInt!
+}
+
+"""Emitted by deposit."""
+type MIVDepositEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  depositor: String! @index
+  deposit_amount: BigInt!
+  shares_minted: BigInt!
+  # Live-state snapshot at event time
+  tick: BigInt!
+  total_amount_0: BigInt!
+  total_amount_1: BigInt!
+  total_supply: BigInt!
+  share_price_e18: BigInt!
+  # Pre-event totals (derived: subtract deposit_amount from the right side)
+  total_amount_0_before_event: BigInt!
+  total_amount_1_before_event: BigInt!
+}
+
+"""
+Emitted by withdraw.
+
+WithdrawEvent has no on-chain "withdrawer" field. The handler attributes
+the withdrawer via ctx.transaction.sender when available; otherwise the
+field is null.
+"""
+type MIVWithdrawEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  withdrawer: String @index
+  shares_burned: BigInt!
+  amount_0: BigInt!
+  amount_1: BigInt!
+  withdraw_fee_0: BigInt!
+  withdraw_fee_1: BigInt!
+  # Live-state snapshot at event time
+  tick: BigInt!
+  total_amount_0: BigInt!
+  total_amount_1: BigInt!
+  total_supply: BigInt!
+  share_price_e18: BigInt!
+  # Pre-event totals (derived: add amounts back to the post-event totals)
+  total_amount_0_before_event: BigInt!
+  total_amount_1_before_event: BigInt!
+}
+
+"""Emitted by rebalance — fires AFTER all PositionAddedEvents in the same tx."""
+type MIVRebalanceEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  rebalancer: String! @index
+  positions_count: Int!
+  swap_amount: BigInt!
+  zero_for_one: Boolean!
+  collected_fees_0: BigInt!
+  collected_fees_1: BigInt!
+  # Asset totals available for re-deposit into the new positions, captured
+  # AFTER fees were collected, existing-position liquidity was removed, and
+  # the swap (if any) was executed, but BEFORE add_new_positions consumed
+  # them. See vault.move:690 — these are NOT the vault's pre-rebalance TVL.
+  total_0_available_for_positions: BigInt!
+  total_1_available_for_positions: BigInt!
+  # Live-state snapshot post-rebalance
+  tick: BigInt!
+  total_amount_0: BigInt!
+  total_amount_1: BigInt!
+  total_supply: BigInt!
+  share_price_e18: BigInt!
+}
+
+"""
+Emitted by add_liquidity_to_position during rebalance.
+
+The on-chain event has no vault_address (it fires inside an internal helper).
+Stored as a pure audit row; per-position state is reconstructed
+authoritatively by the RebalanceEvent handler via view calls.
+"""
+type MIVPositionAddedEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  # Best-effort attribution from the trailing RebalanceEvent in the same tx.
+  vault_address: String @index
+  lower_tick: BigInt!
+  upper_tick: BigInt!
+  liquidity: BigInt!
+  amount_0: BigInt!
+  amount_1: BigInt!
+}
+
+"""Emitted by emergency_exit."""
+type MIVEmergencyExitEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  executor: String! @index
+  removed_positions_count: Int!
+  collected_fees_0: BigInt!
+  collected_fees_1: BigInt!
+  removed_0: BigInt!
+  removed_1: BigInt!
+  # Live-state snapshot post-exit
+  tick: BigInt!
+  total_amount_0: BigInt!
+  total_amount_1: BigInt!
+  total_supply: BigInt!
+}
+
+"""Emitted by collect_fees."""
+type MIVCollectFeesEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  fee_0_collected: BigInt!
+  fee_1_collected: BigInt!
+  # Live-state snapshot at event time
+  tick: BigInt!
+  total_amount_0: BigInt!
+  total_amount_1: BigInt!
+  total_supply: BigInt!
+  share_price_e18: BigInt!
+}
+
+"""Emitted by recover_assets."""
+type MIVAssetRecoveredEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  metadata: String! @index
+  amount: BigInt!
+}
+
+# - - - Farming / Staking Events - - -
+
+"""Emitted by set_staking_pool."""
+type MIVSetStakingPoolEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  previous_pool: String
+  new_pool: String
+}
+
+"""Emitted by add_whitelisted_reward_token."""
+type MIVWhitelistedRewardTokenAddedEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  reward_token: String! @index
+  total_whitelisted: Int!
+}
+
+"""Emitted by remove_whitelisted_reward_token."""
+type MIVWhitelistedRewardTokenRemovedEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  reward_token: String! @index
+  total_whitelisted: Int!
+}
+
+# - - - Vault Ownership / Setter Events - - -
+
+"""Emitted by transfer_vault_ownership."""
+type MIVVaultOwnershipTransferInitiatedEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  previous_owner: String!
+  pending_owner: String!
+}
+
+"""Emitted by claim_vault_ownership."""
+type MIVVaultOwnershipTransferredEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  previous_owner: String!
+  new_owner: String!
+}
+
+"""Emitted by set_amm_fee_recipient."""
+type MIVSetAmmFeeRecipientEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  previous_recipient: String!
+  new_recipient: String!
+}
+
+"""Emitted by set_affiliate."""
+type MIVSetAffiliateEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  previous_affiliate: String!
+  new_affiliate: String!
+}
+
+"""Emitted by set_max_deposit_amount."""
+type MIVSetMaxDepositAmountEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  previous_amount: BigInt!
+  new_amount: BigInt!
+}
+
+"""Emitted by set_depositor_role."""
+type MIVSetDepositRoleEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  account: String! @index
+  is_granted: Boolean!
+}
+
+"""Emitted by set_rebalancer_role."""
+type MIVSetRebalancerRoleEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  account: String! @index
+  is_granted: Boolean!
+}
+
+"""Emitted by set_rebalance_paused."""
+type MIVRebalancePausedEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  previous_state: Boolean!
+  new_state: Boolean!
+}
+
+"""Emitted by set_farming_enabled."""
+type MIVFarmingEnabledEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault: MIVVault!
+  vault_address: String! @index
+  enabled: Boolean!
+}
+
+# - - - Global Ownership / Fee Config Events - - -
+
+"""Emitted by transfer_global_ownership."""
+type MIVGlobalOwnershipTransferInitiatedEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  previous_owner: String!
+  pending_owner: String!
+}
+
+"""Emitted by claim_global_ownership."""
+type MIVGlobalOwnershipTransferredEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  previous_owner: String!
+  new_owner: String!
+}
+
+"""Emitted by set_base_fee_bps."""
+type MIVSetBaseFeeEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  previous_base_fee_bps: BigInt!
+  new_base_fee_bps: BigInt!
+}
+
+"""Emitted by set_base_fee_split_bps."""
+type MIVSetBaseSplitFeeEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  previous_base_fee_split_bps: BigInt!
+  new_base_fee_split_bps: BigInt!
+}
+
+"""Emitted by set_fee_recipient."""
+type MIVSetFeeRecipientEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  previous_recipient: String!
+  new_recipient: String!
+}
+
+"""Emitted by set_amm_fee_bps."""
+type MIVSetAmmFeeEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  previous_amm_fee_bps: BigInt!
+  new_amm_fee_bps: BigInt!
+}
+
+# - - - Timelocked-Module Events - - -
+#
+# Emitted by libs/timelocked.move on every timelocked-parameter proposal /
+# execution. T is always u64 in this package (all six timelocked vault
+# parameters are u64). vault_address is best-effort — the timelocked module
+# itself does not carry the vault address; the handler may attempt
+# attribution via ctx.transaction or leave it null.
+
+"""Emitted by schedule_value_update / schedule_delay_update."""
+type MIVTimelockedUpdateProposedEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault_address: String @index
+  # Tag identifies which vault parameter is being updated
+  # (e.g. "deposit_hysteresis_ticks", "withdraw_fee_bps", "rebalance_cooldown").
+  tag: String! @index
+  current_value: BigInt!
+  # Set when proposing a value update; null when proposing a delay update.
+  proposed_value: BigInt
+  current_delay: BigInt!
+  # Set when proposing a delay update; null when proposing a value update.
+  proposed_delay: BigInt
+  execution_time: BigInt!
+}
+
+"""Emitted by execute_update once the timelock has elapsed."""
+type MIVTimelockedUpdateExecutedEvent @entity {
+  id: ID!
+  transaction_version: BigInt!
+  event_index: Int!
+  timestamp: BigInt!
+  vault_address: String @index
+  tag: String! @index
+  previous_value: BigInt!
+  new_value: BigInt!
+  delay: BigInt!
+}

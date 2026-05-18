@@ -7,17 +7,18 @@
     "prepare": "husky",
     "postinstall": "pnpm gen",
     "precommit": "pnpm fmt && pnpm lint",
-    "build": "sentio build",
-    "gen": "pnpm gen:sentio && pnpm gen:surf",
+    "build": "pnpm gen && sentio build --skip-gen",
+    "gen": "pnpm gen:sentio && pnpm gen:patch && pnpm gen:surf",
     "gen:sentio": "sentio gen",
+    "gen:patch": "tsx ./scripts/patch-codegen.ts",
     "gen:surf": "tsx ./scripts/abigen.ts",
     "test": "sentio test",
-    "upload": "sentio upload",
+    "upload": "pnpm gen && sentio upload --skip-gen",
     "lint": "eslint '**/*.{ts,tsx}'",
     "fmt": "prettier --write '**/*.(ts|tsx)'"
   },
   "dependencies": {
-    "@sentio/sdk": "2.58.7",
+    "@sentio/sdk": "3.7.0",
     "@thalalabs/surf": "^1.7.3",
     "colorette": "^2.0.20",
     "decimal.js": "^10.4.3",
@@ -28,7 +29,8 @@
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.16.0",
     "@jest/globals": "^29.7.0",
-    "@sentio/cli": "2.26.3",
+    "@sentio/cli": "3.7.0",
+    "nock": "^14.0.15",
     "@typescript-eslint/eslint-plugin": "^8.17.0",
     "@typescript-eslint/parser": "^8.17.0",
     "corepack": "^0.29.4",
@@ -45,7 +47,7 @@
     "typescript": "^5.6.3"
   },
   "engines": {
-    "node": "22.x"
+    "node": ">=24"
   },
   "lint-staged": {
     "*": "pnpm lint"

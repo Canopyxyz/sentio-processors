@@ -4,8 +4,11 @@ import { vault as aptos_mainnet_vault } from "./types/aptos/ichi-vaults.js";
 import { multi_rewards as multi_rewards_movement } from "./types/aptos/movement-mainnet/multi_rewards.js";
 import { multi_rewards as multi_rewards_testnet } from "./types/aptos/testnet/multi_rewards.js";
 
+import { ichi_vault_meridian as ichi_vault_meridian_movement } from "./types/aptos/movement-mainnet/ichi_vault_meridian.js";
+
 import { liquidswapIchiVaultsProcessor } from "./processors/liquidswap-ichi-vault-processor.js";
 import { multiRewardsProcessor } from "./processors/multi-rewards-processor.js";
+import { meridianIchiVaultsProcessor } from "./processors/meridian-ichi-vault-processor.js";
 
 import { SupportedAptosChainId } from "./chains.js";
 
@@ -64,4 +67,31 @@ export function setupMultiRewardsProcessor(chainId: SupportedAptosChainId) {
     throw new Error(`Expected MULTI_REWARDS_START_VERSIONS to be defined for chain: ${chainId}`);
   }
   multiRewardsProcessor(chainId, multiRewardsStartVersion, getMultiRewardsBaseProcessor(chainId));
+}
+
+// Deployment version provided by the user; vault module was published at
+// version 78825920 on Movement mainnet.
+export const MERIDIAN_ICHI_VAULTS_START_VERSIONS: Partial<Record<SupportedAptosChainId, number>> = {
+  [SupportedAptosChainId.JESTNET]: 0,
+  [SupportedAptosChainId.MOVEMENT_MAINNET]: 78825920,
+};
+
+export function getMeridianIchiVaultBaseProcessor(chainId: SupportedAptosChainId) {
+  switch (chainId) {
+    case SupportedAptosChainId.JESTNET: // tests reuse the movement-mainnet base processor under JESTNET
+    case SupportedAptosChainId.MOVEMENT_MAINNET: {
+      return ichi_vault_meridian_movement;
+    }
+    default: {
+      throw new Error(`MeridianIchiVaultBaseProcessor is not defined for chain ${chainId}`);
+    }
+  }
+}
+
+export function setupMeridianIchiVaultsProcessor(chainId: SupportedAptosChainId) {
+  const startVersion = MERIDIAN_ICHI_VAULTS_START_VERSIONS[chainId];
+  if (startVersion === undefined) {
+    throw new Error(`Expected MERIDIAN_ICHI_VAULTS_START_VERSIONS to be defined for chain: ${chainId}`);
+  }
+  meridianIchiVaultsProcessor(chainId, startVersion, getMeridianIchiVaultBaseProcessor(chainId));
 }

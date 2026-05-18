@@ -1,4 +1,4 @@
-import { multi_rewards_abi } from "../../../abis/multi_rewards.js";
+import { multi_rewards_abi } from "../../../abis/multi_rewards-testnet.js";
 import { HandlerIdMapping } from "../../utils/processor.js";
 
 // NOTE: this should follow the some order that the event handlers are bound to the sentio MultiRewardsProcessor

@@ -111,4 +111,9 @@ src/schema
 
 # surf ABIs go here
 src/abis
+
+# Dependency-module ABIs auto-fetched by `sentio gen`. Only our explicitly
+# vendored module ABIs (named by friendly module name) should be tracked.
+abis/aptos/**/0x*.json
+
 .DS_Store

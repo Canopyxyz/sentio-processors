@@ -1,7 +1,7 @@
 import { GLOBAL_CONFIG } from "@sentio/runtime";
 
 import { getSupportedAptosChainId, SupportedAptosChainId } from "./chains.js";
-import { setupMultiRewardsProcessor } from "./config.js"; // setupICHIVaultsProcessor
+import { setupMultiRewardsProcessor, setupMeridianIchiVaultsProcessor } from "./config.js"; // setupICHIVaultsProcessor
 
 const { CHAIN_ID } = process.env;
 
@@ -42,6 +42,7 @@ switch (supportedChainId) {
   case SupportedAptosChainId.MOVEMENT_MAINNET: {
     // Movement mainnet has modules to be indexed by the following processors
     setupMultiRewardsProcessor(supportedChainId);
+    setupMeridianIchiVaultsProcessor(supportedChainId);
     break;
   }
   default: {
