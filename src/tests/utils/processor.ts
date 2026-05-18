@@ -1,5 +1,6 @@
 import { TestProcessorServer } from "@sentio/sdk/testing";
 import { DataBinding, HandlerType, ProcessBindingResponse } from "@sentio/sdk";
+import { AptosChainId } from "@sentio/chain";
 
 import { ABIRoot } from "../../pkgs/surf/types/abi.js";
 import { ABITable, DefaultABITable } from "../../pkgs/surf/types/defaultABITable.js";
@@ -19,6 +20,7 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
     private abi: TABI,
     private handlerIds: HandlerIdMapping<TABI>,
     private service: TestProcessorServer,
+    private chainId: AptosChainId = AptosChainId.APTOS_TESTNET,
   ) {}
 
   async processEvent<TEventName extends EventName<TABI>>(params: {
@@ -90,6 +92,7 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
       },
       handlerIds: [handlerId], // Now we use the mapped handler ID
       handlerType: HandlerType.APT_EVENT,
+      chainId: this.chainId,
     };
   }
 }
