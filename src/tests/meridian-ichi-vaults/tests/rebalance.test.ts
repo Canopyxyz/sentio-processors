@@ -190,8 +190,8 @@ describe("RebalanceEvent", async () => {
     assert.strictEqual(re.zero_for_one, true);
     assert.strictEqual(re.collected_fees_0, 100n);
     assert.strictEqual(re.collected_fees_1, 200n);
-    assert.strictEqual(re.total_0_before, 9_900n);
-    assert.strictEqual(re.total_1_before, 19_800n);
+    assert.strictEqual(re.total_0_available_for_positions, 9_900n);
+    assert.strictEqual(re.total_1_available_for_positions, 19_800n);
     assert.strictEqual(re.total_amount_0, 10_000n); // post-state
     assert.strictEqual(re.total_amount_1, 20_000n);
 

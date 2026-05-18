@@ -161,6 +161,12 @@ export function updateVaultFeeMetrics(vault: MIVVault, newFee0: bigint, newFee1:
   const total1U18 = tokenToU18(vault.total_amount_1, vault.token1_decimals);
   const tvlU18 = (total0U18 * vault.last_price_u18) / U18 + total1U18;
   if (tvlU18 === 0n) {
+    // Zero TVL ⇒ APR is undefined. Reset to 0n so a vault that drains to 0
+    // doesn't keep displaying the last computed APR forever.
+    vault.fee_apr_1d_u18 = 0n;
+    vault.fee_apr_3d_u18 = 0n;
+    vault.fee_apr_7d_u18 = 0n;
+    vault.fee_apr_30d_u18 = 0n;
     return;
   }
 

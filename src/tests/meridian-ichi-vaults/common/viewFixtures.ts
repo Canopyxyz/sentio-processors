@@ -101,6 +101,37 @@ export function vaultCreationViewCalls(params: {
 }
 
 /**
+ * View calls the global-config handler bootstraps from on first
+ * MIVGlobalConfig creation. Triggered when a Global* event fires without an
+ * existing MIVGlobalConfig row in the store.
+ */
+export function globalConfigBootstrapViewCalls(params: {
+  owner: string;
+  baseFeeBps?: bigint;
+  baseFeeSplitBps?: bigint;
+  feeRecipient?: string;
+  ammFeeBps?: bigint;
+}): ViewCallExpectation[] {
+  return [
+    {
+      function: `${MOD}::get_global_owner`,
+      functionArguments: [],
+      response: [params.owner],
+    },
+    {
+      function: `${MOD}::get_global_config`,
+      functionArguments: [],
+      response: [
+        (params.baseFeeBps ?? 0n).toString(),
+        (params.baseFeeSplitBps ?? 0n).toString(),
+        params.feeRecipient ?? "0x0",
+        (params.ammFeeBps ?? 0n).toString(),
+      ],
+    },
+  ];
+}
+
+/**
  * View calls every state-changing handler (Deposit, Withdraw, CollectFees,
  * EmergencyExit, Rebalance) issues to refresh per-vault live state.
  */

@@ -205,7 +205,6 @@ async function handleVaultCreated(
     total_amount_1: 0n,
     total_supply: 0n,
     last_tick: 0n,
-    last_sqrt_price: 0n,
     twap_tick: 0n,
     aux_twap_tick: 0n,
     last_price_u18: 0n,
@@ -296,7 +295,6 @@ async function handleDeposit(event: ichi_vault_meridian.DepositEventInstance, ct
       deposit_amount: d.deposit_amount,
       shares_minted: d.shares_minted,
       tick: live.tick,
-      sqrt_price: live.sqrtPrice,
       total_amount_0: vault.total_amount_0,
       total_amount_1: vault.total_amount_1,
       total_supply: vault.total_supply,
@@ -345,7 +343,6 @@ async function handleWithdraw(event: ichi_vault_meridian.WithdrawEventInstance, 
       withdraw_fee_0: d.withdraw_fee_0,
       withdraw_fee_1: d.withdraw_fee_1,
       tick: live.tick,
-      sqrt_price: live.sqrtPrice,
       total_amount_0: vault.total_amount_0,
       total_amount_1: vault.total_amount_1,
       total_supply: vault.total_supply,
@@ -385,7 +382,6 @@ async function handleCollectFees(
       fee_0_collected: d.fee_0_collected,
       fee_1_collected: d.fee_1_collected,
       tick: live.tick,
-      sqrt_price: live.sqrtPrice,
       total_amount_0: vault.total_amount_0,
       total_amount_1: vault.total_amount_1,
       total_supply: vault.total_supply,
@@ -430,10 +426,11 @@ async function handleRebalance(event: ichi_vault_meridian.RebalanceEventInstance
       zero_for_one: d.zero_for_one,
       collected_fees_0: d.collected_fees_0,
       collected_fees_1: d.collected_fees_1,
-      total_0_before: d.total_0,
-      total_1_before: d.total_1,
+      // Captured AFTER fees collected + liquidity removed + swap, BEFORE
+      // add_new_positions consumed them (vault.move:690). NOT pre-rebalance TVL.
+      total_0_available_for_positions: d.total_0,
+      total_1_available_for_positions: d.total_1,
       tick: live.tick,
-      sqrt_price: live.sqrtPrice,
       total_amount_0: vault.total_amount_0,
       total_amount_1: vault.total_amount_1,
       total_supply: vault.total_supply,
@@ -527,7 +524,6 @@ async function handleEmergencyExit(
       removed_0: d.removed_0,
       removed_1: d.removed_1,
       tick: live.tick,
-      sqrt_price: live.sqrtPrice,
       total_amount_0: vault.total_amount_0,
       total_amount_1: vault.total_amount_1,
       total_supply: vault.total_supply,
@@ -1046,14 +1042,40 @@ async function bumpModule(
 async function getOrCreateGlobalConfig(ctx: AptosContext): Promise<MIVGlobalConfig> {
   let cfg = await ctx.store.get(MIVGlobalConfig, "global");
   if (!cfg) {
+    // The Move source initializes owner to get_deployer() and the fee fields
+    // to zero (vault.move:278). If our first Global* event isn't an ownership
+    // event, defaulting owner to "0x0" here would permanently mis-mirror it.
+    // Read the real values via view calls.
+    const client = ctx.getClient();
+    const [ownerRaw, globalConfigRaw] = (await Promise.all([
+      client.viewJson({
+        payload: {
+          function: `${PKG}::ichi_vault_meridian::get_global_owner`,
+          functionArguments: [],
+        },
+        options: { ledgerVersion: ctx.version },
+      }),
+      client.viewJson({
+        payload: {
+          function: `${PKG}::ichi_vault_meridian::get_global_config`,
+          functionArguments: [],
+        },
+        options: { ledgerVersion: ctx.version },
+      }),
+    ])) as [[string], [string | number, string | number, string, string | number]];
+
+    const [owner] = ownerRaw;
+    // get_global_config returns (base_fee_bps, base_fee_split_bps, fee_recipient, amm_fee_bps).
+    const [baseFeeBps, baseFeeSplitBps, feeRecipient, ammFeeBps] = globalConfigRaw;
+
     cfg = new MIVGlobalConfig({
       id: "global",
-      owner: "0x0",
+      owner: lower(owner),
       pending_owner: undefined,
-      base_fee_bps: 0n,
-      base_fee_split_bps: 0n,
-      fee_recipient: "0x0",
-      amm_fee_bps: 0n,
+      base_fee_bps: BigInt(baseFeeBps),
+      base_fee_split_bps: BigInt(baseFeeSplitBps),
+      fee_recipient: lower(feeRecipient),
+      amm_fee_bps: BigInt(ammFeeBps),
       last_update_timestamp: 0n,
     });
     await ctx.store.upsert(cfg);
@@ -1075,7 +1097,6 @@ type LiveState = {
   tick: bigint;
   twapTick: bigint;
   auxTwapTick: bigint;
-  sqrtPrice: bigint;
   sharesPriceE18: bigint;
   totalSupply: bigint;
 };
@@ -1138,7 +1159,6 @@ async function fetchVaultLiveState(
     tick: curNeg ? -BigInt(curAbs) : BigInt(curAbs),
     twapTick: twapNeg ? -BigInt(twapAbs) : BigInt(twapAbs),
     auxTwapTick: auxNeg ? -BigInt(auxAbs) : BigInt(auxAbs),
-    sqrtPrice: 0n, // Not exposed as a separate view; price is derived from tick.
     sharesPriceE18: BigInt(sp),
     totalSupply,
   };
@@ -1151,7 +1171,6 @@ function applyLiveState(vault: MIVVault, live: LiveState, timestamp: bigint): vo
   vault.last_tick = live.tick;
   vault.twap_tick = live.twapTick;
   vault.aux_twap_tick = live.auxTwapTick;
-  vault.last_sqrt_price = live.sqrtPrice;
   vault.shares_price_e18 = live.sharesPriceE18;
   vault.last_price_u18 = priceU18FromTick(live.tick, vault.token0_decimals, vault.token1_decimals);
   vault.last_price_timestamp = timestamp;

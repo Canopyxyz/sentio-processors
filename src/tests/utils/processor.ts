@@ -15,9 +15,30 @@ export type HandlerIdMapping<TABI extends ABIRoot> = {
 // Discriminated union over all events in TABI so processTransaction can accept a
 // heterogeneous list (e.g. multiple PositionAddedEvents followed by a RebalanceEvent)
 // while still type-checking each `data` against its event's field shape.
+//
+// `typeArguments` is optional and only needed for generic Move events
+// (e.g. timelocked::TimelockedUpdateProposedEvent<u64>) — the Sentio MoveCoder
+// requires them to appear in the event's `type` string for decoding.
 export type TestEvent<TABITable extends ABITable, TABI extends ABIRoot> = {
-  [K in EventName<TABI>]: { name: K; data: EventFields<TABITable, TABI, K> };
+  [K in EventName<TABI>]: { name: K; data: EventFields<TABITable, TABI, K>; typeArguments?: readonly string[] };
 }[EventName<TABI>];
+
+/**
+ * Optional synthetic payload + sender for a simulated transaction. Mirrors
+ * the subset of UserTransactionResponse that our handlers read.
+ *
+ * Use cases:
+ *   - timelocked handlers attribute the vault via payload.arguments[0]
+ *   - withdraw handler attributes the withdrawer via tx.sender
+ */
+export type TestTransactionPayload = {
+  sender?: string;
+  payload?: {
+    function?: string;
+    type_arguments?: readonly string[];
+    arguments?: readonly unknown[];
+  };
+};
 
 export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI extends ABIRoot = ABIRoot> {
   private versionCounter = 0n;
@@ -39,11 +60,19 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
     data: EventFields<TABITable, TABI, TEventName>;
     timestamp?: bigint;
     version?: bigint;
+    // Optional — for generic Move events (e.g. <u64>). Sentio's MoveCoder
+    // requires these inside the event type string for decoding to succeed.
+    typeArguments?: readonly string[];
+    // Optional — synthesize a UserTransactionResponse payload for handlers
+    // that read `ctx.transaction.payload` / `ctx.transaction.sender`
+    // (e.g. attributeTimelockedVault, withdraw's withdrawer attribution).
+    transactionPayload?: TestTransactionPayload;
   }): Promise<ProcessBindingResponse> {
     const [response] = await this.processTransaction({
       timestamp: params.timestamp,
       version: params.version,
-      events: [{ name: params.name, data: params.data }],
+      transactionPayload: params.transactionPayload,
+      events: [{ name: params.name, data: params.data, typeArguments: params.typeArguments }],
     });
     return response;
   }
@@ -51,6 +80,7 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
   async processTransaction(params: {
     timestamp?: bigint;
     version?: bigint;
+    transactionPayload?: TestTransactionPayload;
     events: Array<TestEvent<TABITable, TABI>>;
   }): Promise<ProcessBindingResponse[]> {
     if (params.events.length === 0) {
@@ -72,13 +102,21 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
 
     // Build all event objects up-front so rawTransaction.events can include every one
     const builtEvents = params.events.map((e, idx) =>
-      this.buildEventAtIndex({ name: e.name, data: e.data, version, eventIndex: idx }),
+      this.buildEventAtIndex({
+        name: e.name,
+        data: e.data,
+        version,
+        eventIndex: idx,
+        typeArguments: e.typeArguments,
+      }),
     );
 
     const rawTransaction = JSON.stringify({
       version,
       timestamp: this.latestTimestampMicros,
       events: builtEvents,
+      ...(params.transactionPayload?.sender !== undefined ? { sender: params.transactionPayload.sender } : {}),
+      ...(params.transactionPayload?.payload !== undefined ? { payload: params.transactionPayload.payload } : {}),
     });
 
     // Process each event as its own binding (one handler invocation per event)
@@ -90,7 +128,15 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
     return responses;
   }
 
-  private buildEventAtIndex(params: { name: EventName<TABI>; data: unknown; version: bigint; eventIndex: number }) {
+  private buildEventAtIndex(params: {
+    name: EventName<TABI>;
+    data: unknown;
+    version: bigint;
+    eventIndex: number;
+    typeArguments?: readonly string[];
+  }) {
+    const typeArgsSuffix =
+      params.typeArguments && params.typeArguments.length > 0 ? `<${params.typeArguments.join(", ")}>` : "";
     return {
       guid: {
         // creation_number uniquely identifies the event stream; pair with index to differentiate within a tx
@@ -98,7 +144,7 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
         account_address: this.abi.address,
       },
       sequence_number: BigInt(params.eventIndex),
-      type: `${this.abi.address}::${this.abi.name}::${params.name}`,
+      type: `${this.abi.address}::${this.abi.name}::${params.name}${typeArgsSuffix}`,
       version: params.version,
       data: params.data,
     };
@@ -106,7 +152,12 @@ export class TestProcessor<TABITable extends ABITable = DefaultABITable, TABI ex
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private createBinding(event: any, eventIndex: number, rawTransaction: string): DataBinding {
-    const eventName = event.type.split("::").pop() as EventName<TABI>;
+    // Parse the event name from the prefix before any generic type args. A
+    // naive .split("::").pop() would mangle types like Event<0x1::foo::Bar>
+    // because the type-arg contains "::" too — take everything before the
+    // first "<", then drop the module/address prefix.
+    const beforeAngle = (event.type as string).split("<")[0];
+    const eventName = beforeAngle.split("::").pop() as EventName<TABI>;
 
     const handlerId = this.handlerIds[eventName];
     if (handlerId === undefined) {

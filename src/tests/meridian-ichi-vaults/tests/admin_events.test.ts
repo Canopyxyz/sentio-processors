@@ -17,7 +17,7 @@ import {
   FIXTURE_TOKEN_1_METADATA,
   FIXTURE_VAULT_OWNER,
 } from "../common/constants.js";
-import { vaultCreationViewCalls } from "../common/viewFixtures.js";
+import { vaultCreationViewCalls, globalConfigBootstrapViewCalls } from "../common/viewFixtures.js";
 import { verifyVaultState, secsToMicros } from "../common/helpers.js";
 import { setupMeridianIchiVaultsTest } from "../common/testSetup.js";
 
@@ -162,8 +162,22 @@ describe("Admin / config events", async () => {
     assert.strictEqual(events[0].total_whitelisted, 1);
   });
 
-  test("SetBaseFeeEvent updates the MIVGlobalConfig singleton + records event", async () => {
+  test("SetBaseFeeEvent: bootstraps MIVGlobalConfig from view calls + applies update + records event", async () => {
     const reader = new MIVTestReader(service.store);
+    const FIXTURE_GLOBAL_OWNER = "0x000000000000000000000000000000000000000000000000000000000000e001";
+    const FIXTURE_FEE_RECIPIENT = "0x000000000000000000000000000000000000000000000000000000000000e002";
+
+    // First Global* event in the test ⇒ getOrCreateGlobalConfig bootstraps
+    // by fetching get_global_owner + get_global_config.
+    mockViewCalls(
+      globalConfigBootstrapViewCalls({
+        owner: FIXTURE_GLOBAL_OWNER,
+        baseFeeBps: 0n,
+        baseFeeSplitBps: 5000n,
+        feeRecipient: FIXTURE_FEE_RECIPIENT,
+        ammFeeBps: 0n,
+      }),
+    );
 
     await processor.processEvent({
       name: "SetBaseFeeEvent",
@@ -176,6 +190,10 @@ describe("Admin / config events", async () => {
 
     const cfg = await reader.getGlobalConfig();
     assert(cfg, "MIVGlobalConfig should exist");
+    // Bootstrap populated owner + fee_recipient from view; SetBaseFee updated base_fee_bps.
+    assert.strictEqual(cfg.owner, FIXTURE_GLOBAL_OWNER);
+    assert.strictEqual(cfg.fee_recipient, FIXTURE_FEE_RECIPIENT);
+    assert.strictEqual(cfg.base_fee_split_bps, 5_000n);
     assert.strictEqual(cfg.base_fee_bps, 300n);
 
     const events = await service.store.list(MIVSetBaseFeeEvent, [{ field: "id", op: "!=", value: "" }]);

@@ -73,7 +73,6 @@ type MIVVault @entity {
   total_supply: BigInt!
   # Signed ticks: stored as a single BigInt (negative values allowed).
   last_tick: BigInt!
-  last_sqrt_price: BigInt!
   twap_tick: BigInt!
   aux_twap_tick: BigInt!
 
@@ -238,7 +237,7 @@ type MIVVaultDailyHistory @entity {
 #   id: "<tx_version>-<event_index>"
 #   transaction_version, event_index, timestamp
 # State-changing events also store the live-state snapshot fetched at
-# event time (tick, sqrt_price, total_supply, totals, share_price).
+# event time (tick, total_supply, totals, share_price).
 #
 # These are immutable audit rows — useful for reconstructing history and
 # building dashboards independent of the rolling-state MIVVault entity.
@@ -271,7 +270,6 @@ type MIVDepositEvent @entity {
   shares_minted: BigInt!
   # Live-state snapshot at event time
   tick: BigInt!
-  sqrt_price: BigInt!
   total_amount_0: BigInt!
   total_amount_1: BigInt!
   total_supply: BigInt!
@@ -303,7 +301,6 @@ type MIVWithdrawEvent @entity {
   withdraw_fee_1: BigInt!
   # Live-state snapshot at event time
   tick: BigInt!
-  sqrt_price: BigInt!
   total_amount_0: BigInt!
   total_amount_1: BigInt!
   total_supply: BigInt!
@@ -327,12 +324,14 @@ type MIVRebalanceEvent @entity {
   zero_for_one: Boolean!
   collected_fees_0: BigInt!
   collected_fees_1: BigInt!
-  # Pre-rebalance totals from the event payload
-  total_0_before: BigInt!
-  total_1_before: BigInt!
+  # Asset totals available for re-deposit into the new positions, captured
+  # AFTER fees were collected, existing-position liquidity was removed, and
+  # the swap (if any) was executed, but BEFORE add_new_positions consumed
+  # them. See vault.move:690 — these are NOT the vault's pre-rebalance TVL.
+  total_0_available_for_positions: BigInt!
+  total_1_available_for_positions: BigInt!
   # Live-state snapshot post-rebalance
   tick: BigInt!
-  sqrt_price: BigInt!
   total_amount_0: BigInt!
   total_amount_1: BigInt!
   total_supply: BigInt!
@@ -376,7 +375,6 @@ type MIVEmergencyExitEvent @entity {
   removed_1: BigInt!
   # Live-state snapshot post-exit
   tick: BigInt!
-  sqrt_price: BigInt!
   total_amount_0: BigInt!
   total_amount_1: BigInt!
   total_supply: BigInt!
@@ -394,7 +392,6 @@ type MIVCollectFeesEvent @entity {
   fee_1_collected: BigInt!
   # Live-state snapshot at event time
   tick: BigInt!
-  sqrt_price: BigInt!
   total_amount_0: BigInt!
   total_amount_1: BigInt!
   total_supply: BigInt!
